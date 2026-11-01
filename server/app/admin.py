@@ -168,7 +168,10 @@ def stop(request: Request, job_id: str):
     j = _admin_action(request, job_id)
     if isinstance(j, HTMLResponse):
         return j
-    request_stop_job(job_id)
+    if not request_stop_job(job_id) and j["state"] == "queued":
+        # задача ещё не взята воркером — просто снимаем с очереди
+        db.execute("UPDATE jobs SET state='stopped', finished_at=? WHERE id=?",
+                   (int(time.time()), job_id))
     return RedirectResponse(f"/admin/jobs/{job_id}", status_code=303)
 
 

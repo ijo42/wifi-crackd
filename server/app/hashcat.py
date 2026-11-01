@@ -202,7 +202,14 @@ class StageRun:
         self._log_fh = None
 
     def stop(self) -> None:
+        """Останов: SIGTERM (hashcat корректно допишет potfile), затем флаг."""
         self._stop.set()
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
 
     def _log(self, line: str) -> None:
         if self.log_path is None:
@@ -278,7 +285,7 @@ class DryRun(StageRun):
             n_hashes = len([l for l in self.hashfile.read_text().splitlines() if l.strip()])
         except OSError:
             pass
-        stages_total = 3
+        stages_total = max(1, cfg.DRY_RUN_SECS)
         for i in range(stages_total):
             if self._stop.is_set():
                 return 130

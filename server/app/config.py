@@ -17,6 +17,7 @@ CONFIG_PATH = Path(os.environ.get("CRACKD_CONFIG", "/app/config.yaml"))
 WORDLISTS_DIR = Path(os.environ.get("CRACKD_WORDLISTS", "/wordlists"))
 
 DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
+DRY_RUN_SECS = int(os.environ.get("DRY_RUN_SECS", "3"))  # длительность фейкового прогона
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 SECRET_KEY = os.environ.get("SECRET_KEY", "")
 

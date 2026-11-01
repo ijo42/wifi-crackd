@@ -78,6 +78,33 @@ class TestStatusJson:
         assert up.eta == "7 мин"
 
 
+    def test_stop_queued_job(self, client):
+        """Стоп задачи в очереди: снимается без запуска hashcat."""
+        r = upload(client, make_zip({"cap.hc22000": VALID_PMKID.encode()}), token=_token(client))
+        data = r.json()
+        assert data["state"] == "queued"
+        login(client)
+        client.post(f"/admin/jobs/{data['job_id']}/stop")
+        st = wait_state(client, data["job_id"], data["secret"], {"stopped", "running", "done"}, timeout=5)
+        assert st == "stopped"
+
+    def test_stop_running_job(self, client):
+        """Стоп бегущей задачи (DRY_RUN): воркер корректно переводит в stopped."""
+        r = upload(client, make_zip({"cap.hc22000": VALID_EAPOL.encode()}), token=_token(client))
+        data = r.json()
+        assert wait_state(client, data["job_id"], data["secret"], {"running"}, timeout=15) == "running"
+        login(client)
+        client.post(f"/admin/jobs/{data['job_id']}/stop")
+        st = wait_state(client, data["job_id"], data["secret"], {"stopped"}, timeout=15)
+        assert st == "stopped"
+
+
+def _token(c: TestClient) -> str:
+    login(c)
+    r = c.post("/admin/tokens", data={"name": "stop-test"}, follow_redirects=True)
+    return r.text.split('class="pass big">')[1].split("</code>")[0]
+
+
 class TestE2E:
     def test_anon_full_flow(self, client):
         r = upload(client, make_zip({"cap.hc22000": (VALID_EAPOL + "\n" + VALID_FT).encode()}))

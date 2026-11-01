@@ -7,6 +7,7 @@ from pathlib import Path
 _TMP = tempfile.mkdtemp(prefix="crackd-test-")
 os.environ["CRACKD_DATA"] = _TMP
 os.environ["DRY_RUN"] = "1"
+os.environ["DRY_RUN_SECS"] = "10"
 os.environ["SECRET_KEY"] = "test-secret"
 os.environ["ADMIN_PASSWORD"] = "testpass"
 os.environ["CRACKD_CONFIG"] = str(Path(__file__).parent / "test_config.yaml")
