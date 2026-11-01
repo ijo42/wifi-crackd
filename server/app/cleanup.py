@@ -22,7 +22,7 @@ def cleanup_once(retention_days: int) -> int:
         job_id = r["id"]
         db.execute("DELETE FROM jobs WHERE id=?", (job_id,))
         db.execute("DELETE FROM found WHERE job_id=?", (job_id,))
-        for suffix in (".hc22000", ".draft"):
+        for suffix in (".hc22000", ".draft", ".log"):
             (cfg.JOBS_DIR / f"{job_id}{suffix}").unlink(missing_ok=True)
         d = cfg.UPLOAD_DIR / job_id
         if d.is_dir():

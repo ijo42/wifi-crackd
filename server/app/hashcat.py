@@ -69,7 +69,11 @@ def _fmt_eta(entry: dict) -> str | None:
 
 
 def parse_status_json(line: str) -> StatusUpdate | None:
-    """Строка --status-json → StatusUpdate (по опыту wifit3: коды 2-6, progress[])."""
+    """Строка --status-json → StatusUpdate.
+
+    v8: speed = devices[].speed (H/s), ETA = estimated_stop (unix-time);
+    v6: speed_sec [[h, ms], ...], eta [{sec|minutes|...}].
+    """
     line = line.strip()
     if not (line.startswith("{") and line.endswith("}")):
         return None
@@ -81,9 +85,40 @@ def parse_status_json(line: str) -> StatusUpdate | None:
     prog = data.get("progress") or [0, 1]
     if len(prog) == 2 and prog[1]:
         up.progress = min(100.0, prog[0] / prog[1] * 100.0)
-    up.speed_hs = _fmt_speed(data.get("speed_sec"))
-    up.eta = _fmt_eta(data.get("eta"))
+    # v8
+    devices = data.get("devices") or []
+    if devices and isinstance(devices[0].get("speed"), (int, float)):
+        up.speed_hs = _fmt_speed_scalar(sum(
+            d.get("speed", 0) for d in devices if isinstance(d.get("speed"), (int, float))))
+    est = data.get("estimated_stop")
+    if isinstance(est, (int, float)) and est > 0:
+        up.eta = _fmt_eta_left(est)
+    # v6 fallback
+    if up.speed_hs is None:
+        up.speed_hs = _fmt_speed(data.get("speed_sec"))
+    if up.eta is None:
+        up.eta = _fmt_eta(data.get("eta"))
     return up
+
+
+def _fmt_speed_scalar(hs: float) -> str:
+    for unit, div in (("H/s", 1), ("kH/s", 1e3), ("MH/s", 1e6), ("GH/s", 1e9)):
+        if hs < div * 1000 or unit == "GH/s":
+            return f"{hs / div:.1f} {unit}"
+    return None
+
+
+def _fmt_eta_left(stop_ts: float) -> str:
+    secs = int(stop_ts - time.time())
+    if secs <= 0:
+        return "—"
+    if secs < 90:
+        return f"{secs} сек"
+    if secs < 5400:
+        return f"{secs // 60} мин"
+    if secs < 172800:
+        return f"{secs // 3600} ч"
+    return f"{secs // 86400} дн"
 
 
 # ---------- potfile ----------
@@ -151,18 +186,31 @@ def _strip_dead_pidfile() -> None:
 
 
 class StageRun:
-    """Запуск одной стадии: процесс + поток чтения stdout, статус → колбэк."""
+    """Запуск одной стадии: процесс + поток чтения stdout, статус → колбэк.
 
-    def __init__(self, cmd: list[str], on_status):
+    Все сырые строки stdout пишутся в per-job лог (/data/jobs/<id>.log).
+    """
+
+    def __init__(self, cmd: list[str], on_status, log_path: Path | None = None):
         self.cmd = cmd
         self.on_status = on_status
+        self.log_path = log_path
         self.proc: subprocess.Popen | None = None
         self.last_message = ""
         self.final_status_code: int | None = None
         self._stop = threading.Event()
+        self._log_fh = None
 
     def stop(self) -> None:
         self._stop.set()
+
+    def _log(self, line: str) -> None:
+        if self.log_path is None:
+            return
+        if self._log_fh is None:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_fh = open(self.log_path, "a", encoding="utf-8", buffering=1)
+        self._log_fh.write(line + "\n")
 
     def _reader(self) -> None:
         assert self.proc and self.proc.stdout
@@ -170,11 +218,13 @@ class StageRun:
             line = raw.decode("utf-8", errors="replace").rstrip("\n")
             if self._stop.is_set():
                 break
+            self._log(line)
             s = line.strip()
             if not s:
                 continue
             if not (s.startswith("{") and s.endswith("}")):
-                self.last_message = s[:200]
+                if not s.startswith(("Started:", "Stopped:", "[s]tatus")) and s != "=>":
+                    self.last_message = s[:200]
             up = parse_status_json(s)
             if up:
                 if up.status_code in (5, 6):
@@ -199,9 +249,15 @@ class StageRun:
             self.proc.kill()
             return 130
         t.join(timeout=5)
+        if self._log_fh is not None:
+            self._log_fh.close()
+            self._log_fh = None
         return rc
 
     def kill(self) -> None:
+        if self._log_fh is not None:
+            self._log_fh.close()
+            self._log_fh = None
         if self.proc and self.proc.poll() is None:
             self.proc.kill()
 
@@ -244,6 +300,7 @@ class DryRun(StageRun):
 
 
 def make_stage_run(job_id: str, hashfile: Path, stage_args: str, on_status) -> StageRun:
+    log_path = cfg.JOBS_DIR / f"{job_id}.log"
     if cfg.DRY_RUN:
         return DryRun(hashfile, stage_args, on_status)
-    return StageRun(build_cmd(hashfile, stage_args), on_status)
+    return StageRun(build_cmd(hashfile, stage_args), on_status, log_path=log_path)

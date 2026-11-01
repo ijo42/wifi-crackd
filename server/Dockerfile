@@ -2,17 +2,31 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# ARG: версия hashcat с hashcat.net (официальный бинарь с CUDA-бэкендом;
+# apt-пакет Ubuntu запаздывает и собран без CUDA)
+ARG HASHCAT_VERSION=8.0.0
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        hashcat \
         hcxtools \
         ocl-icd-libopencl1 \
         libnvrtc12 \
+        p7zip-full \
         python3 \
         python3-venv \
         python3-pip \
         curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# официальный бинарь hashcat (включает CUDA; apt-пакет — только OpenCL)
+RUN curl -fsSL -o /tmp/hashcat.7z "https://hashcat.net/files/hashcat-${HASHCAT_VERSION}.7z" \
+    && 7z x -o/opt/hashcat /tmp/hashcat.7z > /dev/null \
+    && rm /tmp/hashcat.7z \
+    && ln -s hashcat-${HASHCAT_VERSION} /opt/hashcat/current \
+    && ln -s /opt/hashcat/current/hashcat.bin /usr/local/bin/hashcat \
+    && hashcat --version | head -1
+
+ENV HASHCAT_BIN=/opt/hashcat/current/hashcat.bin
 
 WORKDIR /app
 

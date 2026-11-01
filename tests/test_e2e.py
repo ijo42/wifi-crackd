@@ -55,6 +55,29 @@ def wait_state(c: TestClient, job_id: str, secret: str, states: set[str], timeou
     return st
 
 
+class TestStatusJson:
+    def test_v8_schema(self):
+        from app.hashcat import parse_status_json
+        line = ('{"session":"hashcat","guess":{},"status":3,'
+                '"progress":[42090496,400000000],"recovered_hashes":[0,10],'
+                '"devices":[{"device_id":1,"device_name":"RTX 3060","speed":390149}],'
+                '"estimated_stop":9999999999}')
+        up = parse_status_json(line)
+        assert up.status_code == 3
+        assert abs(up.progress - 10.5) < 0.1
+        assert up.speed_hs == "390.1 kH/s"
+        assert up.eta and "дн" in up.eta
+
+    def test_v6_fallback(self):
+        from app.hashcat import parse_status_json
+        line = ('{"status":3,"progress":[1,2],"speed_sec":[[100000,500]],'
+                '"eta":[{"minutes":7}]}')
+        up = parse_status_json(line)
+        assert up.progress == 50.0
+        assert up.speed_hs == "200.0 kH/s"
+        assert up.eta == "7 мин"
+
+
 class TestE2E:
     def test_anon_full_flow(self, client):
         r = upload(client, make_zip({"cap.hc22000": (VALID_EAPOL + "\n" + VALID_FT).encode()}))

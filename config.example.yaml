@@ -11,9 +11,9 @@ stages:
   - name: ru-phones-79
     args: "-a 3 79?d?d?d?d?d?d?d?d?d"
   - name: top-dict
-    args: "/wordlists/top1k.txt -r /usr/share/hashcat/rules/best64.rule"
+    args: "/wordlists/top1k.txt -r /opt/hashcat/current/rules/best64.rule"
   - name: rockyou
-    args: "/wordlists/rockyou.txt -r /usr/share/hashcat/rules/dive.rule"
+    args: "/wordlists/rockyou.txt -r /opt/hashcat/current/rules/dive.rule"
   # Раскомментируй после scripts/download_wordlists.sh --big:
   # - name: insomnia
   #   args: "/wordlists/insomnia.txt"

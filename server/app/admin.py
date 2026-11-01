@@ -179,7 +179,7 @@ def delete(request: Request, job_id: str):
         return j
     db.execute("DELETE FROM jobs WHERE id=?", (job_id,))
     db.execute("DELETE FROM found WHERE job_id=?", (job_id,))
-    for suffix in (".hc22000", ".draft"):
+    for suffix in (".hc22000", ".draft", ".log"):
         (cfg.JOBS_DIR / f"{job_id}{suffix}").unlink(missing_ok=True)
     return RedirectResponse("/admin", status_code=303)
 
