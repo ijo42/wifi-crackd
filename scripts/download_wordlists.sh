@@ -16,12 +16,16 @@ fetch() { # url out
     mv "$2.part" "$2"
 }
 
-# rockyou — классика (14.5 млн строк)
-fetch "https://github.com/brannondorsey/naive-hashcat/releases/download/data/rockyou.txt" \
-      "$DEST/rockyou.txt"
+# rockyou — классика (14.5 млн строк, gz)
+fetch "https://gitlab.com/kalilinux/packages/wordlists/-/raw/kali/master/rockyou.txt.gz" \
+      "$DEST/rockyou.txt.gz"
+if [ -f "$DEST/rockyou.txt.gz" ] && [ ! -f "$DEST/rockyou.txt" ]; then
+    echo "распаковка rockyou.txt.gz ..."
+    gunzip -kf "$DEST/rockyou.txt.gz"
+fi
 
 # top1k — короткий словарь с best64 на первом словарном этапе
-fetch "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10-million-password-list-top-1000.txt" \
+fetch "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/Pwdb_top-1000.txt" \
       "$DEST/top1k.txt"
 
 if [ "${1:-}" = "--big" ]; then
