@@ -1,0 +1,33 @@
+# Этапы брута — по порядку. Каждый этап = сырые аргументы hashcat
+# (после фиксированной части: -m 22000 --potfile-path ... --status-json ...).
+# /wordlists монтируется из ./wordlists на хосте (scripts/download_wordlists.sh).
+stages:
+  - name: digits8
+    args: "-a 3 ?d?d?d?d?d?d?d?d"
+  - name: ru-phones-9
+    args: "-a 3 9?d?d?d?d?d?d?d?d?d"
+  - name: ru-phones-89
+    args: "-a 3 89?d?d?d?d?d?d?d?d?d"
+  - name: ru-phones-79
+    args: "-a 3 79?d?d?d?d?d?d?d?d?d"
+  - name: top-dict
+    args: "/wordlists/top1k.txt -r /usr/share/hashcat/rules/best64.rule"
+  - name: rockyou
+    args: "/wordlists/rockyou.txt -r /usr/share/hashcat/rules/dive.rule"
+  # Раскомментируй после scripts/download_wordlists.sh --big:
+  # - name: insomnia
+  #   args: "/wordlists/insomnia.txt"
+  # - name: weakpass-top
+  #   args: "/wordlists/weakpass-top.txt"
+
+limits:
+  max_upload_mb: 64          # размер captures.zip
+  max_files: 512             # файлов в архиве
+  anon_rate_per_hour: 10     # анонимных загрузок с одного IP
+  anon_pending_cap: 50       # максимум задач в pending (иначе анонимам отказ)
+
+retention_days: 30           # сколько хранить завершённые задачи и их файлы
+
+hashcat:
+  workload: 3                # -w: 1=низкая нагрузка ... 4=_MAXIMUM_
+  status_timer: 5            # сек между --status-json строками

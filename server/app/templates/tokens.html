@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Токены — wifi-crackd{% endblock %}
+{% block content %}
+<h1>API-токены</h1>
+<p class="muted">Токен <code>wfk_…</code> в заголовке <code>Authorization: Bearer</code> — задачи идут сразу в очередь, минуя акцепт.</p>
+
+{% if new_key %}
+<div class="result">
+  <p><b>Новый токен (показывается один раз):</b></p>
+  <p><code class="pass big">{{ new_key }}</code></p>
+</div>
+{% endif %}
+
+<form method="post" action="/admin/tokens" class="inline-form">
+  <input name="name" placeholder="имя (например, ноутбук-вася)">
+  <button type="submit">Создать</button>
+</form>
+
+<table class="jobs">
+<tr><th>имя</th><th>создан</th><th>последнее использование</th><th>статус</th><th></th></tr>
+{% for t in tokens %}
+<tr>
+  <td>{{ t.name }}</td>
+  <td>{{ t.created_at | ts }}</td>
+  <td>{{ t.last_used_at | ts or '—' }}</td>
+  <td>{% if t.active %}<span class="badge st-done">активен</span>{% else %}<span class="badge st-rejected">отозван</span>{% endif %}</td>
+  <td>{% if t.active %}<form method="post" action="/admin/tokens/{{ t.id }}/revoke" class="inline"><button class="bad">Отозвать</button></form>{% endif %}</td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="muted">нет токенов</td></tr>
+{% endfor %}
+</table>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Загрузка — wifi-crackd{% endblock %}
+{% block content %}
+<h1>Загрузка хендшейков</h1>
+<p class="muted">Архив zip с захватами wifit3 / wifite3 (hc22000, pmkid, pcap/cap, hccapx).
+Без токена задача попадёт в очередь на подтверждение администратору; с токеном — сразу в брут.</p>
+
+<div id="drop" class="drop">
+  <p><b>Перетащи zip сюда</b> или выбери файл</p>
+  <input type="file" id="file" accept=".zip">
+  <input type="text" id="note" placeholder="Заметка (необязательно)">
+  <input type="text" id="token" placeholder="wfk_… токен (необязательно)">
+  <button id="go" type="button">Отправить</button>
+  <div id="msg" class="msg"></div>
+</div>
+
+<div id="result" class="result hidden">
+  <h2>Задача принята</h2>
+  <p>job_id: <code id="r-job"></code></p>
+  <p>secret: <code id="r-secret"></code> <span class="muted">(сохрани — по нему узнаёшь статус)</span></p>
+  <p>Статус: <span id="r-state" class="badge">…</span></p>
+  <pre id="r-detail" class="detail"></pre>
+</div>
+
+<script>
+const drop = document.getElementById('drop');
+const msg = document.getElementById('msg');
+['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => {e.preventDefault(); drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {e.preventDefault(); drop.classList.remove('over');}));
+drop.addEventListener('drop', e => { if (e.dataTransfer.files.length) document.getElementById('file').files = e.dataTransfer.files; });
+
+document.getElementById('go').onclick = async () => {
+  const file = document.getElementById('file').files[0];
+  if (!file) { msg.textContent = 'выбери файл'; return; }
+  const fd = new FormData();
+  fd.append('captures', file);
+  fd.append('note', document.getElementById('note').value);
+  const headers = {};
+  const tok = document.getElementById('token').value.trim();
+  if (tok) headers['Authorization'] = 'Bearer ' + tok;
+  msg.textContent = 'загрузка…';
+  const resp = await fetch('/api/upload', {method: 'POST', body: fd, headers});
+  const data = await resp.json();
+  if (!resp.ok) { msg.textContent = 'ошибка: ' + (data.detail || resp.status); return; }
+  msg.textContent = '';
+  document.getElementById('result').classList.remove('hidden');
+  document.getElementById('r-job').textContent = data.job_id;
+  document.getElementById('r-secret').textContent = data.secret;
+  const badge = document.getElementById('r-state');
+  badge.textContent = data.state;
+  badge.className = 'badge st-' + data.state;
+  document.getElementById('r-detail').textContent =
+    JSON.stringify({hash_count: data.hash_count, ft_count: data.ft_count, targets: data.targets, note: data.note}, null, 2);
+};
+</script>
+{% endblock %}

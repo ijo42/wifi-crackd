@@ -1,0 +1,12 @@
+.venv/
+data/*
+wordlists/*
+!data/.gitignore
+!wordlists/.gitignore
+__pycache__/
+.pytest_cache/
+.env
+config.yaml
+build/
+*.egg-info/
+dist/

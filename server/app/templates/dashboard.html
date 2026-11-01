@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Админка — wifi-crackd{% endblock %}
+{% block content %}
+<h1>Задачи</h1>
+<p class="counts">
+{% for s in ['pending','queued','running','done','failed','stopped','invalid','rejected'] %}
+  <a class="badge st-{{ s }} {{ 'sel' if state == s }}" href="/admin?state={{ s }}">{{ s }}: {{ counts.get(s, 0) }}</a>
+{% endfor %}
+{% if state %}<a class="badge" href="/admin">все</a>{% endif %}
+</p>
+
+<script>setTimeout(() => location.reload(), 5000);</script>
+<table class="jobs">
+<tr><th>id</th><th>создана</th><th>источник</th><th>таргеты</th><th>хэши</th><th>стадия</th><th>прогресс</th><th>статус</th><th>заметка</th><th></th></tr>
+{% for j in jobs %}
+<tr>
+  <td><a href="/admin/jobs/{{ j.id }}"><code>{{ j.id }}</code></a></td>
+  <td>{{ j.created_at | ts }}</td>
+  <td>{{ j.source }}{% if j.token_name %} ({{ j.token_name }}){% endif %}</td>
+  <td class="targets">
+    {% for t in j.targets[:3] %}<div>{{ (t.ssid or '(hidden)') }} <code>{{ t.bssid }}</code> · {{ t.kind }} ×{{ t.count }}</div>{% endfor %}
+    {% if j.targets | length > 3 %}<div class="muted">+{{ j.targets | length - 3 }}…</div>{% endif %}
+  </td>
+  <td>{{ j.hash_count }}{% if j.ft_count %} <span class="muted">(+{{ j.ft_count }} FT)</span>{% endif %}</td>
+  <td>{{ j.stage_name or '—' }}</td>
+  <td>{% if j.state == 'running' %}{{ j.progress | round(1) }}%{% else %}—{% endif %}</td>
+  <td><span class="badge st-{{ j.state }}">{{ j.state }}</span>{% if j.error %}<div class="error small">{{ j.error }}</div>{% endif %}</td>
+  <td class="muted">{{ j.note or '' }}</td>
+  <td class="actions">
+    {% if j.state == 'pending' %}
+    <form method="post" action="/admin/jobs/{{ j.id }}/accept"><button class="ok">Принять</button></form>
+    <form method="post" action="/admin/jobs/{{ j.id }}/reject"><input name="reason" placeholder="причина"><button class="bad">Отклонить</button></form>
+    {% endif %}
+    {% if j.state in ['running','queued'] %}
+    <form method="post" action="/admin/jobs/{{ j.id }}/stop"><button>Стоп</button></form>
+    {% endif %}
+    <form method="post" action="/admin/jobs/{{ j.id }}/delete"><button class="bad">Удалить</button></form>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="10" class="muted">пусто</td></tr>
+{% endfor %}
+</table>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Вход — wifi-crackd{% endblock %}
+{% block content %}
+<h1>Вход администратора</h1>
+<form method="post" action="/login" class="login">
+  <input type="password" name="password" placeholder="Пароль" autofocus>
+  <button type="submit">Войти</button>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+</form>
+{% endblock %}

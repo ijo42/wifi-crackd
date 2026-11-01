@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Задача {{ j.id }} — wifi-crackd{% endblock %}
+{% block content %}
+<h1>Задача <code>{{ j.id }}</code> <span class="badge st-{{ j.state }}">{{ j.state }}</span></h1>
+
+<table class="props">
+<tr><th>Источник</th><td>{{ j.source }}{% if j.token_name %} ({{ j.token_name }}){% endif %}, IP {{ j.uploader_ip }}</td></tr>
+<tr><th>Создана / принята</th><td>{{ j.created_at | ts }} / {{ j.accepted_at | ts or '—' }}</td></tr>
+<tr><th>Файлов / хэшей</th><td>{{ j.n_files }} / {{ j.hash_count }}{% if j.ft_count %} (FT отфильтровано: {{ j.ft_count }}){% endif %}</td></tr>
+<tr><th>Стадия</th><td>{{ j.stage_idx + 1 if j.stage_name else '—' }}: {{ j.stage_name or '—' }}
+  {% if j.state == 'running' %} {{ j.progress | round(1) }}% · {{ j.speed_hs or '' }} · ETA {{ j.eta or '—' }}{% endif %}</td></tr>
+<tr><th>Заметка</th><td>{{ j.note or '—' }}</td></tr>
+{% if j.error %}<tr><th>Ошибка / причина</th><td class="error">{{ j.error }}</td></tr>{% endif %}
+</table>
+
+<h2>Таргеты</h2>
+<table class="jobs">
+<tr><th>SSID</th><th>BSSID</th><th>тип</th><th>строк</th></tr>
+{% for t in j.targets %}
+<tr><td>{{ t.ssid or '(hidden)' }}</td><td><code>{{ t.bssid }}</code></td><td>{{ t.kind }}</td><td>{{ t.count }}</td></tr>
+{% else %}
+<tr><td colspan="4" class="muted">—</td></tr>
+{% endfor %}
+</table>
+
+<h2>Найденные пароли</h2>
+<table class="jobs">
+<tr><th>SSID</th><th>BSSID</th><th>пароль</th><th>стадия</th><th></th></tr>
+{% for f in found %}
+<tr><td>{{ f.ssid or '(hidden)' }}</td><td><code>{{ f.bssid }}</code></td>
+  <td><code class="pass">{{ f.password }}</code></td><td>{{ f.stage or '' }}</td>
+  <td><button class="copy" data-pass="{{ f.password }}">копировать</button></td></tr>
+{% else %}
+<tr><td colspan="5" class="muted">пока ничего</td></tr>
+{% endfor %}
+</table>
+
+<div class="actions big">
+  {% if j.state in ['pending'] %}
+  <form method="post" action="/admin/jobs/{{ j.id }}/accept" class="inline"><button class="ok">Принять в очередь</button></form>
+  <form method="post" action="/admin/jobs/{{ j.id }}/reject" class="inline">
+    <input name="reason" placeholder="причина"><button class="bad">Отклонить</button></form>
+  {% endif %}
+  {% if j.state in ['running','queued'] %}
+  <form method="post" action="/admin/jobs/{{ j.id }}/stop" class="inline"><button>Стоп</button></form>
+  {% endif %}
+  {% if j.state in ['done','failed','stopped'] and j.hash_count %}
+  <form method="post" action="/admin/jobs/{{ j.id }}/retry" class="inline"><button>Прогнать заново</button></form>
+  {% endif %}
+  <form method="post" action="/admin/jobs/{{ j.id }}/delete" class="inline"><button class="bad">Удалить</button></form>
+  <a href="/admin"><button>← к списку</button></a>
+</div>
+
+<script>
+document.querySelectorAll('.copy').forEach(b => b.onclick = () => navigator.clipboard.writeText(b.dataset.pass));
+</script>
+{% endblock %}

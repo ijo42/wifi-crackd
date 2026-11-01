@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Конфиг — wifi-crackd{% endblock %}
+{% block content %}
+<h1>Конфигурация (read-only)</h1>
+{% if dry_run %}<p class="error">DRY_RUN включён — hashcat не запускается, пишутся демо-пароли.</p>{% endif %}
+
+<h2>Стадии брута ({{ c.stages | length }})</h2>
+<ol>
+{% for s in c.stages %}
+  <li><b>{{ s.name }}</b>: <code>{{ s.args }}</code></li>
+{% else %}
+  <li class="muted">стадии не заданы</li>
+{% endfor %}
+</ol>
+
+<h2>Лимиты</h2>
+<table class="props">
+<tr><th>макс. размер архива</th><td>{{ c.limits.max_upload_mb }} МБ</td></tr>
+<tr><th>макс. файлов в архиве</th><td>{{ c.limits.max_files }}</td></tr>
+<tr><th>анонимных загрузок/час с IP</th><td>{{ c.limits.anon_rate_per_hour }}</td></tr>
+<tr><th>кап анонимных pending</th><td>{{ c.limits.anon_pending_cap }}</td></tr>
+<tr><th>retention</th><td>{{ c.retention_days }} дн</td></tr>
+<tr><th>hashcat -w</th><td>{{ c.hashcat.workload }}</td></tr>
+<tr><th>status-timer</th><td>{{ c.hashcat.status_timer }} с</td></tr>
+</table>
+{% endblock %}

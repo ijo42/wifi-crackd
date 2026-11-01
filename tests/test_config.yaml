@@ -1,0 +1,10 @@
+# конфиг для тестов: одна быстрая фейковая стадия
+stages:
+  - name: dry
+    args: "-a 3 ?d?d?d?d?d?d?d?d"
+limits:
+  max_upload_mb: 8
+  max_files: 64
+  anon_rate_per_hour: 100
+  anon_pending_cap: 10
+retention_days: 30

@@ -1,0 +1,76 @@
+:root {
+  --bg: #0e1116; --panel: #161b22; --border: #2d333b;
+  --fg: #e6edf3; --muted: #8b949e; --accent: #d29922;
+  --ok: #3fb950; --bad: #f85149; --run: #58a6ff;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+a { color: var(--run); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
+h1, h2 { font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: .82em; }
+.error { color: var(--bad); }
+.inline { display: inline; }
+
+nav { display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+nav .brand { color: var(--accent); font-weight: 700; font-size: 17px; }
+.nav-links { display: flex; gap: 16px; align-items: center; }
+nav form.inline button { border: none; background: none; color: var(--run); cursor: pointer; font: inherit; padding: 0; }
+nav form.inline button:hover { text-decoration: underline; }
+
+button { background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
+button:hover { border-color: var(--accent); }
+button.ok { border-color: var(--ok); color: var(--ok); }
+button.bad { border-color: var(--bad); color: var(--bad); }
+button.link { border: none; background: none; }
+input, textarea { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 10px; font: inherit; }
+input:focus { outline: 1px solid var(--accent); }
+
+.drop { border: 2px dashed var(--border); border-radius: 10px; padding: 28px;
+  display: grid; gap: 12px; max-width: 520px; background: var(--panel); }
+.drop.over { border-color: var(--accent); }
+.drop input[type=file] { border: none; }
+.msg { color: var(--muted); min-height: 1.2em; }
+.result { border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px;
+  margin-top: 16px; max-width: 720px; background: var(--panel); }
+.detail { background: var(--bg); border-radius: 6px; padding: 10px; overflow-x: auto; font-size: .85em; }
+.hidden { display: none; }
+
+.login { display: grid; gap: 12px; max-width: 320px; }
+
+.badge { display: inline-block; padding: 2px 9px; border-radius: 20px;
+  font-size: .8em; border: 1px solid var(--border); background: var(--panel); }
+.badge.st-pending { border-color: var(--accent); color: var(--accent); }
+.badge.st-queued { border-color: var(--muted); }
+.badge.st-running { border-color: var(--run); color: var(--run); }
+.badge.st-done { border-color: var(--ok); color: var(--ok); }
+.badge.st-failed, .badge.st-rejected, .badge.st-invalid { border-color: var(--bad); color: var(--bad); }
+.badge.st-stopped { border-color: var(--muted); color: var(--muted); }
+.badge.sel { outline: 1px solid var(--fg); }
+
+.counts { display: flex; gap: 8px; flex-wrap: wrap; }
+.counts a { text-decoration: none; color: inherit; }
+
+table.jobs { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: .92em; }
+table.jobs th, table.jobs td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.jobs th { color: var(--muted); font-weight: 500; }
+table.jobs form { display: inline; margin-right: 4px; }
+.actions { white-space: nowrap; }
+.actions input { width: 110px; padding: 3px 6px; font-size: .85em; }
+.actions.big { margin-top: 24px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.actions.big input { width: 160px; }
+.targets div { white-space: nowrap; }
+.pass { color: var(--ok); }
+.pass.big { font-size: 1.2em; padding: 6px 10px; }
+.inline-form { display: flex; gap: 10px; margin: 14px 0; }
+
+table.props { border-collapse: collapse; max-width: 640px; }
+table.props th, table.props td { text-align: left; padding: 6px 12px 6px 0; vertical-align: top; }
+table.props th { color: var(--muted); font-weight: 500; }
