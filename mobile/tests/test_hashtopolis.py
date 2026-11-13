@@ -38,6 +38,14 @@ class Stub(BaseHTTPRequestHandler):
         if self.path == "/api/v2/auth/token":
             if payload != ["role.all"]:
                 return self._reply(400, {"error": "bad role request"})
+            # real Hashtopolis: login requires HTTP Basic credentials
+            auth = self.headers.get("Authorization", "")
+            if not auth.startswith("Basic "):
+                return self._reply(500, {"title": "Token not found.", "status": 500})
+            import base64
+            userpw = base64.b64decode(auth[6:]).decode()
+            if userpw.split(":", 1) != ["admin", "pw"]:
+                return self._reply(500, {"title": "Token not found.", "status": 500})
             return self._reply(201, {"token": "jwt-1"})
         if not self._authed():
             return self._reply(401, {"error": "unauthorized"})
@@ -52,6 +60,9 @@ class Stub(BaseHTTPRequestHandler):
         return self._reply(404, {"error": "not found"})
 
     def do_GET(self):
+        if self.headers.get("Content-Type"):   # real server: 400 Malformed request
+            return self._reply(400, {"title": "Malformed request", "status": 400,
+                                     "type": "about:blank"})
         if self.path.startswith("/api/v2/ui/pretasks") and "?" not in self.path:
             if not self._authed():
                 return self._reply(401, {"error": "unauthorized"})
@@ -221,3 +232,26 @@ def test_pretasks_fallback_chain_to_bare(stub_url):
     server.fail_big_page = True
     server.fail_numbered = True
     assert client(url).pretasks() == PRETASKS
+
+
+def test_login_sends_basic_auth(stub_url):
+    """Regression (live WSL server): login must carry HTTP Basic credentials."""
+    url, _server = stub_url
+    assert client(url).verify()["ok"] is True                 # jwt path works end-to-end
+
+
+def test_get_requests_carry_no_content_type(stub_url):
+    """Regression (live WSL server): the JSON:API backend 400s GETs with Content-Type."""
+    url, server = stub_url
+    c = client(url)
+    c.verify()
+    bad = [r for r in server.requests if r[0] == "get-with-content-type"]
+    assert bad == []
+
+
+def test_missing_token_500_counts_as_auth_error():
+    """Regression (live WSL server): no Authorization header -> 500 'Token not found.',
+    not 401; the client must still retry the login."""
+    assert hashtopolis.HashtopolisClient._is_auth_error(500, b'{"title": "Token not found."}')
+    assert hashtopolis.HashtopolisClient._is_auth_error(401, b"{}")
+    assert not hashtopolis.HashtopolisClient._is_auth_error(500, b"other error")

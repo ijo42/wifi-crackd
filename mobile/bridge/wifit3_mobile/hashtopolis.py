@@ -74,12 +74,25 @@ class HashtopolisClient:
         self.timeout = timeout
 
     # ---- transport ------------------------------------------------------
+    @staticmethod
+    def _is_auth_error(status, body):
+        """Real Hashtopolis answers 401 on a bad Bearer token but 500 'Token not
+        found.' when the Authorization header is missing entirely — both mean
+        'authenticate and retry'."""
+        if status == 401:
+            return True
+        return status == 500 and b"Token not found" in body
+
     def _call(self, method, path, payload=None, retry_auth=True):
-        headers = {"Content-Type": "application/json"}
+        data = json.dumps(payload).encode() if payload is not None else None
+        headers = {}
+        if data is not None:
+            # The new JSON:API backend answers GETs that carry Content-Type with
+            # 400 "Malformed request"; send it only when a body is present.
+            headers["Content-Type"] = "application/json"
         token = self._static or self._jwt
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        data = json.dumps(payload).encode() if payload is not None else None
         req = urlrequest.Request(f"{self.url}{path}", data=data, headers=headers, method=method)
         try:
             with urlrequest.urlopen(req, timeout=self.timeout) as response:
@@ -89,7 +102,7 @@ class HashtopolisClient:
             body, status = exc.read(), exc.code
         except urlerror.URLError as exc:
             raise HashtopolisError(f"Сервер Hashtopolis недоступен: {exc.reason}") from exc
-        if status == 401 and retry_auth and not self._static:
+        if self._is_auth_error(status, body) and retry_auth and not self._static:
             self._jwt = self._login()
             return self._call(method, path, payload, retry_auth=False)
         try:
@@ -104,10 +117,12 @@ class HashtopolisClient:
     def _login(self):
         if not self._user:
             raise HashtopolisError("Нет ни API-токена, ни пользователя для входа.")
+        basic = base64.b64encode(f"{self._user}:{self._password or ''}".encode()).decode()
         req = urlrequest.Request(
             f"{self.url}/api/v2/auth/token",
             data=json.dumps(["role.all"]).encode(),
-            headers={"Content-Type": "application/json"}, method="POST")
+            headers={"Content-Type": "application/json", "Authorization": f"Basic {basic}"},
+            method="POST")
         try:
             with urlrequest.urlopen(req, timeout=self.timeout) as response:
                 if response.status != 201:
