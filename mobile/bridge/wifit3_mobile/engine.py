@@ -13,7 +13,7 @@ import time
 from . import hashes as hashcollect
 from . import hashtopolis
 from . import __version__
-from .attacks import DeauthControl
+from .attacks import CampaignControl
 from .observation import DisconnectObservations
 
 UPSTREAM_COMMIT = "04a4e2b6e3d6d54b7befd526bdb7232694ec49ea"
@@ -55,6 +55,8 @@ def serialize_ap(ap, clients):
         "wpa3": ap.wpa3, "transition_mode": ap.transition_mode,
         "vendor": ap.identity.manufacturer or "",
         "captures": captures, "pmkid": pmkid, "psk_family": psk_family,
+        "hidden": bool(getattr(ap, "is_hidden", False)),
+        "rsn_valid": bool(getattr(ap, "rsn_valid", False)),
         "clients": [{"mac": c.mac, "signal": c.signal, "packets": c.packets}
                     for c in list(clients.values()) if c.bssid == ap.bssid],
     }
@@ -66,8 +68,8 @@ class Engine:
         self.instance_id = None
         self.state_dir = state_dir
         self.disconnect_observations = DisconnectObservations()
-        self.deauth = DeauthControl(self)
-        self.demo_captures: dict[str, str] = {}
+        self.attack = CampaignControl(self)
+        self.demo_captures: dict[str, list[str]] = {}
         self._hash_cache: dict[str, list[str]] = {}
         self.phase = "idle"
         self.error = ""
@@ -129,7 +131,7 @@ class Engine:
             self.disconnect_observations = DisconnectObservations()
             self.demo_captures = {}
             self._hash_cache = {}
-            self.deauth.reset()
+            self.attack.reset()
             self.phase, self.error, self.band = "starting", "", band
             self.progress = "Инициализация адаптера…"
             self._loop = asyncio.get_running_loop()
@@ -219,22 +221,32 @@ class Engine:
         return self._hash_cache
 
     def register_demo_capture(self, bssid, line):
-        self.demo_captures[bssid] = line
+        self.demo_captures.setdefault(bssid, []).append(line)
+        for n in self.networks:
+            if n["bssid"] == bssid:
+                n["captures"] = len(self.demo_captures[bssid])
+                n["pmkid"] = True
         self._hash_cache = hashcollect.collect_demo(self)
 
     def hash_lines(self):
         return hashcollect.unique_lines(self._refresh_hashes())
 
-    # ---- deauth ----------------------------------------------------------
-    async def start_deauth(self, bssid, authorized):
+    # ---- active campaigns (deauth / PMKID / WPS) --------------------------
+    async def start_attack(self, campaign, bssid, authorized):
         if authorized is not True:
             raise ValueError("Подтвердите право на аудит оборудования.")
-        await self.deauth.start(bssid)
+        await self.attack.start(campaign, bssid)
         return self.snapshot()          # every POST action returns the full state (UI contract)
 
-    async def stop_deauth(self):
-        await self.deauth.stop()
+    async def start_deauth(self, bssid, authorized):
+        return await self.start_attack("deauth", bssid, authorized)
+
+    async def stop_attack(self):
+        await self.attack.stop()
         return self.snapshot()
+
+    async def stop_deauth(self):
+        return await self.stop_attack()
 
     # ---- Hashtopolis -----------------------------------------------------
     def htp_state(self):
@@ -313,7 +325,7 @@ class Engine:
         async with self._lock:
             self.phase = "stopping"
             try:
-                await self.deauth.stop()
+                await self.attack.stop()
             except Exception as exc:
                 self.log("Ошибка остановки deauth: " + str(exc))
             if self._connect_task:
@@ -346,7 +358,8 @@ class Engine:
                 "logs": list(self.logs),
                 "passive_only": False,
                 "audit": True,
-                "deauth": self.deauth.snapshot(),
+                "attack": self.attack.snapshot(),
+                "deauth": self.attack.snapshot(),   # legacy alias (pre-0.4.2 consumers)
                 "hashes": hashcollect.summarize(self._refresh_hashes()),
                 "htp": self.htp_state(),
                 "disconnect_observations": self.disconnect_observations.snapshot()}
@@ -367,5 +380,6 @@ class Engine:
                            "beacons": 143 + 19*i, "last_seen": time.time(), "age_seconds": 0,
                            "captures": 0, "pmkid": False,
                            "psk_family": enc != "OPEN",
+                           "hidden": ssid == "", "rsn_valid": enc != "OPEN",
                            "clients": []})
         return result

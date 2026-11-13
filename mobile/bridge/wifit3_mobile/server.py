@@ -98,8 +98,8 @@ def make_handler(engine, loop, token, port, shutdown_event=None):
                 return self.reply(415, {"error": "JSON required"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 4096:
-                    return self.reply(413, {"error": "Body limit: 4096 bytes"})
+                if not 0 < length <= 16384:
+                    return self.reply(413, {"error": "Body limit: 16384 bytes"})
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
                     raise ValueError("JSON object required")
@@ -112,7 +112,12 @@ def make_handler(engine, loop, token, port, shutdown_event=None):
                     data = self.run_async(engine.start(body.get("device_id"), body.get("band", "all")))
                 elif path == "/api/stop":
                     data = self.run_async(engine.stop())
-                elif path == "/api/deauth/start":
+                elif path == "/api/attack/start":
+                    data = self.run_async(engine.start_attack(
+                        body.get("campaign"), body.get("bssid"), body.get("authorized")))
+                elif path == "/api/attack/stop":
+                    data = self.run_async(engine.stop_attack())
+                elif path == "/api/deauth/start":      # legacy alias (pre-0.4.2 clients)
                     data = self.run_async(engine.start_deauth(body.get("bssid"), body.get("authorized")))
                 elif path == "/api/deauth/stop":
                     data = self.run_async(engine.stop_deauth())

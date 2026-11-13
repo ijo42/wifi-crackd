@@ -14,3 +14,5 @@
 .detail-hashes .htp-result{margin:10px 0 0}
 header{gap:8px}
 header .badge:last-child{margin-left:auto}
+.btn-col{display:grid;gap:8px;margin:10px 0}
+.filters select{min-width:0}

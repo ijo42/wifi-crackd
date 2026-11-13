@@ -12,6 +12,53 @@ async function api(path, body) {
   if(!response.ok) { if(response.status===401) {connected=false;clearTimeout(pollHandle);$('workspace').hidden=true;$('pairing').hidden=false;sessionStorage.removeItem('wifit3-token');} throw new Error(data.error || 'Ошибка модуля'); }
   return data;
 }
+const CAMPAIGNS=[['deauth','Deauth','Deauth: форсировать хендшейк'],['pmkid','PMKID','PMKID: собрать без клиентов'],['wps','WPS PIN','WPS PIN / Pixie Dust']];
+function campaignAvailability(n) {
+  const out={};
+  out.deauth=n.psk_family?{ok:true}:(n.pmf_required?{ok:false,why:'PMF required/invalid без маяка: нечем послать CSA'}:{ok:false,why:'не подтверждён WPA/WPA2-PSK'});
+  out.pmkid=n.hidden?{ok:false,why:'скрытый SSID: ассоциироваться не с чем'}
+    :(n.psk_family&&n.rsn_valid)||(!n.encryption||n.encryption==='Unknown')?{ok:true}:n.wps_locked?{ok:false,why:'WPS заблокирован'}:{ok:false,why:'RSN не подтверждён (нет маяка)'};
+  out.wps=!n.wps?{ok:false,why:'WPS не обнаружен в маяках'}:n.hidden?{ok:false,why:'скрытый SSID'}:n.wps_locked?{ok:false,why:'WPS заблокирован'}:((n.encryption||'').toUpperCase()==='WEP')?{ok:false,why:'WEP-цель'}:{ok:true};
+  return out;
+}
+function renderCampaignCard(target) {
+  const d=state.attack||{}, box=$('campaignBtns');
+  $('campaignStatus').textContent=(d.active||d.captured)?d.headline:'Кампании не запущены.';
+  const last=(d.last||{}).bssid===(target&&target.bssid)?d.last:null;
+  $('campaignLast').hidden=!last;
+  if(last){
+    let txt='Прошлая попытка ('+last.key.toUpperCase()+'): ';
+    if(last.key==='deauth')txt+=last.captured?'новый крэкабельный захват получен.':'без нового захвата.';
+    else if(last.key==='pmkid')txt+=last.result&&last.result.harvested?'PMKID собран.':('не удалась'+(last.result&&last.result.fail?' ('+last.result.fail+')':''));
+    else txt+=last.result&&last.result.pin!=null?'PIN найден: '+last.result.pin+(last.result.psk?' · PSK: '+last.result.psk:''):'PIN не найден.';
+    txt+=' acks/попытки: '+JSON.stringify(last.stats);
+    $('campaignLast').textContent=txt;
+  }
+  box.replaceChildren();
+  if(!target)return;
+  const activeHere=d.active&&d.bssid===target.bssid;
+  if(activeHere){
+    const stop=el('button','danger full','■ Остановить '+d.key.toUpperCase());
+    stop.disabled=busy;stop.addEventListener('click',()=>action('attack/stop'));
+    box.append(stop);return;
+  }
+  if(d.active){
+    box.append(el('p','hint','Занято целью '+(d.ssid||d.bssid)+' ('+d.key.toUpperCase()+'). Сначала остановите её.'));
+    return;
+  }
+  const avail=campaignAvailability(target);
+  for(const [key,short] of CAMPAIGNS){
+    const a=avail[key];
+    const btn=el('button','secondary full',short);
+    if(state.phase!=='scanning'){btn.disabled=true;}
+    else if(!a.ok){btn.disabled=true;btn.title=a.why;}
+    else btn.disabled=busy || !$('authorized').checked;
+    if(a.ok && state.phase==='scanning' && !$('authorized').checked)btn.title='Требуется согласие на аудит (вкладка «Модуль»)';
+    btn.addEventListener('click',()=>action('attack/start',{campaign:key,bssid:target.bssid,authorized:$('authorized').checked===true}));
+    box.append(btn);
+    if(!a.ok)box.append(el('p','hint',short+': '+a.why));
+  }
+}
 function controls() {
   if(!state)return;
   const active=['starting','scanning','stopping'].includes(state.phase);
@@ -21,27 +68,10 @@ function controls() {
   for(const id of ['refresh','device','band']) $(id).disabled=busy || active;
   $('export').disabled=!state.networks.length;
   $('shutdownModule').disabled=busy;
-  const d=state.deauth||{};
-  const onThis=!!(d.active && detailTarget && d.bssid===detailTarget.bssid);
-  const eligible=state.phase==='scanning' && detailTarget && detailTarget.psk_family && !d.active;
-  $('deauthBtn').textContent=onThis?'■ Остановить deauth':'Deauth: форсировать новый хендшейк';
-  $('deauthBtn').disabled=busy || !onThis && !eligible;
-  $('deauthBtn').classList.toggle('danger',!onThis);
-  $('detailActions').hidden=!detailTarget || (!onThis && !(detailTarget && detailTarget.psk_family && state.phase==='scanning'));
-  if(detailTarget)renderDeauthStatus(detailTarget);
-}
-function deauthHeadline(d, target) {
-  if(d.active && (!target || d.bssid===(target&&target.bssid))) return '● Deauth: форсируем повторный хендшейк · acks '+(d.stats.client_acks||0)+'/'+(d.stats.client_sent||0)+' · bcast '+(d.stats.bcast_sent||0)+' · CSA '+(d.stats.csa_sent||0);
-  if(d.captured && (!target || d.bssid===(target&&target.bssid))) return '● Новый крэкабельный захват получен — хеш доступен во вкладке «Хеши».';
-  if(target && target.pmf_required) return 'Цель с PMF: от deauth не отключается — только CSA‑маяки.';
-  return 'Готов: пары клиент↔AP + broadcast; авто‑стоп при новом захвате.';
-}
-function renderDeauthStatus(target) {
-  const d=state.deauth||{};
-  $('deauthStatus').textContent=deauthHeadline(d,target);
-  const last=(d.last||{}).bssid===(target&&target.bssid)?d.last:null;
-  $('deauthLast').hidden=!last;
-  if(last)$('deauthLast').textContent='Прошлая попытка: '+(last.captured?'новый крэкабельный захват получен.':'без нового захвата.')+' acks '+last.stats.client_acks+'/'+last.stats.client_sent+' · bcast '+last.stats.bcast_sent+' · CSA '+last.stats.csa_sent;
+  const d=state.attack||{};
+  const anyHere=!!(d.active && detailTarget);
+  $('detailActions').hidden=!detailTarget || (!anyHere && state.phase!=='scanning');
+  if(detailTarget)renderCampaignCard(detailTarget);
 }
 async function action(name, body={}) {
   if(busy)return; busy=true;controls();
@@ -73,8 +103,6 @@ function render(data) {
   $('networkCount').textContent=data.networks.length;
   $('clientCount').textContent=new Set(data.networks.flatMap(n=>n.clients.map(c=>c.mac))).size;
   $('hashCount').textContent=(data.hashes&&data.hashes.count)||0;
-  const d=data.deauth||{};
-  if(!d.active && detailTarget && $('details').open)renderDeauthStatus(detailTarget);
   if($('htpUrl').value==='' && data.htp && data.htp.url) $('htpUrl').value=data.htp.url;
   if($('htpUser').value==='' && data.htp && data.htp.user) $('htpUser').value=data.htp.user;
   if(data.htp && data.htp.has_token) $('htpToken').placeholder='сохранён · введите новый для замены';
@@ -94,8 +122,14 @@ function render(data) {
 function renderNetworks(){
   if(!state)return;
   const q=$('search').value.toLocaleLowerCase(),band=$('filterBand').value,sort=$('sort').value;
-  const list=state.networks.filter(n=>(n.ssid+' '+n.bssid).toLocaleLowerCase().includes(q) && (band==='all'||(band==='2g'?n.channel<=14:n.channel>14)))
-    .sort((a,b)=>sort==='ssid'?a.ssid.localeCompare(b.ssid):sort==='channel'?a.channel-b.channel:sort==='captures'?(b.captures||0)-(a.captures||0):b.signal-a.signal);
+  const enc=$('filterEnc').value,hashF=$('filterHash').value,cliF=$('filterClients').value;
+  const list=state.networks.filter(n=>(n.ssid+' '+n.bssid).toLocaleLowerCase().includes(q)
+      && (band==='all'||(band==='2g'?n.channel<=14:n.channel>14))
+      && (enc==='all'||(enc==='SCE'?(n.encryption||'').includes('WPA2/WPA3'):(n.encryption||'').includes(enc)))
+      && (hashF==='any'||(hashF==='no'?!(n.captures>0):(n.captures>0)))
+      && (cliF==='any'||(cliF==='has'?n.clients.length>0:n.clients.length===0)))
+    .sort((a,b)=>sort==='ssid'?a.ssid.localeCompare(b.ssid):sort==='channel'?a.channel-b.channel
+      :sort==='captures'?(b.captures||0)-(a.captures||0):sort==='clients'?b.clients.length-a.clients.length:b.signal-a.signal);
   $('shownCount').textContent='НАЙДЕННЫЕ СЕТИ / '+list.length;
   $('networks').replaceChildren();$('empty').hidden=list.length>0;
   if(!list.length && state.networks.length){$('empty').querySelector('h2').textContent='Нет совпадений';$('empty').querySelector('p').textContent='Попробуйте изменить поиск или диапазон.';}
@@ -132,7 +166,7 @@ function focusNetwork(n){
   $('detailHashes').hidden=!lines.length;
   if(lines.length)$('detailHashLines').textContent=lines.join('\n');
   $('detailHashes').open=false;
-  renderDeauthStatus(n);
+  renderCampaignCard(n);
   $('details').showModal();controls();
 }
 function renderFocusLive(){
@@ -219,12 +253,7 @@ $('refresh').addEventListener('click',()=>action('refresh'));
 $('start').addEventListener('click',()=>{if(!$('device').value || !$('authorized').checked){selectView('devices');return;}action('start',{device_id:$('device').value,band:$('band').value,authorized:true});});
 $('stop').addEventListener('click',()=>action('stop'));
 $('authorized').addEventListener('change',controls);$('device').addEventListener('change',controls);
-$('deauthBtn').addEventListener('click',()=>{
-  const d=state&&state.deauth||{};
-  if(d.active && detailTarget && d.bssid===detailTarget.bssid)action('deauth/stop');
-  else action('deauth/start',{bssid:detailTarget&&detailTarget.bssid,authorized:$('authorized').checked===true});
-});
-for(const id of ['search','filterBand','sort'])$(id).addEventListener('input',renderNetworks);
+for(const id of ['search','filterBand','sort','filterEnc','filterHash','filterClients'])$(id).addEventListener('input',renderNetworks);
 for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('click',()=>selectView(b.dataset.view));
 $('closeDetails').addEventListener('click',()=>$('details').close());
 $('export').addEventListener('click',exportReport);

@@ -39,8 +39,8 @@ def collect_from_array(array) -> dict[str, list[str]]:
 
 
 def collect_demo(engine) -> dict[str, list[str]]:
-    """{bssid: [line]} from DEMO captures registered by the demo deauth shim."""
-    return {bssid: [line] for bssid, line in engine.demo_captures.items()}
+    """{bssid: [lines]} from DEMO captures registered by the demo campaign shims."""
+    return {bssid: list(lines) for bssid, lines in engine.demo_captures.items()}
 
 
 def summarize(per_network: dict[str, list[str]]) -> dict:

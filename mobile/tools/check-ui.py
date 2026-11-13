@@ -29,17 +29,28 @@ async def main():
   await page.locator('.network').first.click()
   await page.locator('#details').wait_for(state='visible')
   await page.screenshot(path='mobile-details-demo.png',full_page=True)
-  # --- 0.4: deauth campaign card (DEMO shim: synthetic capture in ~3 s) ---
-  await page.locator('#deauthBtn').wait_for(state='visible')
-  assert 'Готов' in await page.locator('#deauthStatus').inner_text()
-  await page.locator('#deauthBtn').click()
-  await page.wait_for_function("() => document.getElementById('deauthStatus').textContent.includes('Deauth:')")
+  # --- 0.4.2: campaign card (DEMO shims: synthetic results, no radio) ---
+  await page.locator('#campaignBtns button').first.wait_for(state='visible')
+  assert 'Кампании не запущены' in await page.locator('#campaignStatus').inner_text()
+  await page.get_by_role('button',name='Deauth',exact=True).click()
+  await page.wait_for_function("() => document.getElementById('campaignStatus').textContent.includes('Deauth:')")
   await page.wait_for_function("() => document.getElementById('hashCount').textContent==='1'",timeout=15000)
-  await page.wait_for_function("() => document.getElementById('deauthStatus').textContent.includes('захват получен')",timeout=15000)
+  await page.wait_for_function("() => document.getElementById('campaignStatus').textContent.includes('захват получен')",timeout=15000)
+  # PMKID on the same target: harvest registers a second hash
+  await page.get_by_role('button',name='PMKID',exact=True).click()
+  await page.wait_for_function("() => document.getElementById('campaignStatus').textContent.includes('PMKID получен')",timeout=15000)
+  await page.wait_for_function("() => document.getElementById('hashCount').textContent==='2'",timeout=15000)
+  await page.locator('#closeDetails').click()
+  # WPS on a target that advertises WPS
+  await page.locator('.network',has_text='Home Network').first.click()
+  await page.locator('#details').wait_for(state='visible')
+  await page.get_by_role('button',name='WPS PIN',exact=True).click()
+  await page.wait_for_function("() => document.getElementById('campaignStatus').textContent.includes('WPS PIN найден')",timeout=15000)
+  assert '12345670' in await page.locator('#campaignStatus').inner_text()
   await page.locator('#closeDetails').click()
   # --- 0.4: hashes tab + export gating ---
   await page.get_by_role('button',name='Хеши',exact=True).click()
-  await page.wait_for_function("() => document.getElementById('hashSummary').textContent.includes('Уникальных хешей: 1')")
+  await page.wait_for_function("() => document.getElementById('hashSummary').textContent.includes('Уникальных хешей: 2')")
   assert await page.locator('#hashNets .tag').count()==1
   assert not await page.locator('#exportHashes').is_disabled()
   assert await page.locator('#hashLines').is_visible()
@@ -49,16 +60,31 @@ async def main():
   await page.locator('#htpSend').click()
   await page.wait_for_function("() => !document.getElementById('htpResult').hidden")
   result=json.loads(await page.locator('#htpResult').inner_text())
-  assert result['dry_run'] is True and result['total']==1, result
+  assert result['dry_run'] is True and result['total']==2, result
   await page.locator('#htpDry').uncheck()
   await page.locator('#htpSend').click()
   await page.wait_for_function("() => !document.getElementById('error').hidden")
   assert 'DEMO' in await page.locator('#error').inner_text()
-  # --- classic flow ---
+  # --- classic flow + 0.4.2 filters ---
   await page.get_by_role('button',name='Сети',exact=True).click()
   await page.locator('#filterBand').select_option('5g')
   assert await page.locator('.network').count()==1
   await page.locator('#filterBand').select_option('all')
+  await page.locator('#filterEnc').select_option('WPA2')
+  assert await page.locator('.network').count()==3           # WPA2 + WPA2/WPA3, OPEN excluded
+  await page.locator('#filterEnc').select_option('OPEN')
+  assert await page.locator('.network').count()==1
+  await page.locator('#filterEnc').select_option('all')
+  await page.locator('#filterHash').select_option('has')
+  assert await page.locator('.network').count()==1           # only the deauth/PMKID target
+  await page.locator('#filterHash').select_option('no')
+  assert await page.locator('.network').count()==3
+  await page.locator('#filterHash').select_option('any')
+  await page.locator('#filterClients').select_option('has')
+  assert await page.locator('.network').count()==0           # demo networks have no clients
+  await page.locator('#filterClients').select_option('any')
+  await page.locator('#sort').select_option('clients')       # sorts without error
+  assert await page.locator('.network').count()==4
   async with page.expect_download() as dl:
    await page.locator('#export').click()
   download=await dl.value
@@ -95,7 +121,7 @@ async def main():
    raise AssertionError('server still alive after shutdown')
   except Exception:
    pass
-  print('UI 0.4.1: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth DEMO capture, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
+  print('UI 0.4.2: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth+pmkid+wps DEMO, filters+sort, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
   await browser.close()
 
 asyncio.run(main())

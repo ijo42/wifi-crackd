@@ -42,7 +42,7 @@ async def test_demo_deauth_lifecycle_and_capture():
     with pytest.raises(ValueError):
         await e.start_deauth('02:00:00:00:00:01', True)            # one target at a time
     await asyncio.sleep(3.5)                                       # demo shim settle (~3 s)
-    assert e.deauth.snapshot()['captured'] is True
+    assert e.attack.snapshot()['captured'] is True
     hashes = e.snapshot()['hashes']
     assert hashes['count'] == 1 and hashes['networks'][bssid] == 1
     assert e.hash_lines()[0].startswith('WPA*01*')
@@ -66,9 +66,9 @@ async def test_stop_resets_deauth_and_session_stop_stops_campaign():
     e = await started_engine()
     await e.start_deauth('02:00:00:00:00:02', True)
     await e.stop()
-    assert e.deauth.snapshot()['active'] is False
+    assert e.attack.snapshot()['active'] is False
     assert e.snapshot()['hashes']['count'] == 0
-    assert e.deauth.snapshot()['last'] is None or e.deauth.snapshot()['last']['captured'] in (True, False)
+    assert e.attack.snapshot()['last'] is None or e.attack.snapshot()['last']['captured'] in (True, False)
 
 
 @pytest.mark.asyncio
@@ -77,7 +77,7 @@ async def test_demo_deauth_records_last_result():
     await e.start_deauth('02:00:00:00:00:02', True)
     await asyncio.sleep(3.5)
     await e.stop_deauth()
-    last = e.deauth.snapshot()['last']
+    last = e.attack.snapshot()['last']
     assert last is not None and last['captured'] is True and last['bssid'] == '02:00:00:00:00:02'
     await e.stop()
 
@@ -114,12 +114,36 @@ class _FakeEngine:
 @pytest.mark.asyncio
 async def test_live_tune_pins_channel_and_restore_hops_again():
     """Upstream parity: deauth must stop hopping and pin the target channel (EAPOL parity)."""
-    from wifit3_mobile.attacks import DeauthControl
+    from wifit3_mobile.attacks import CampaignControl
     engine = _FakeEngine()
-    control = DeauthControl(engine)
+    control = CampaignControl(engine)
     target = type('T', (), {'channel': 6})()
     await control._tune_live(engine.array, target)
     await control._restore_hopping()
     assert engine.array.calls[0] == 'stop_hopping'
     assert engine.array.calls[1] == ('set_channel', 6)
     assert engine.array.calls[2] == ('start_hopping', (1, 6, 11), 0.5)
+
+
+@pytest.mark.asyncio
+async def test_demo_pmkid_campaign_harvests_hash():
+    e = await started_engine()
+    await e.start_attack('pmkid', '02:00:00:00:00:01', True)
+    await asyncio.sleep(2.4)                                    # pmkid shim settle (~2 s)
+    snap = e.attack.snapshot()
+    assert snap['captured'] is True and snap['result']['harvested'] is True
+    assert e.snapshot()['hashes']['count'] == 1                 # demo PMKID registered as hc22000
+    await e.stop()
+
+
+@pytest.mark.asyncio
+async def test_demo_wps_campaign_finds_pin_and_gates():
+    e = await started_engine()
+    with pytest.raises(ValueError):
+        await e.start_attack('wps', '02:00:00:00:00:01', True)  # Studio/Lab has no WPS
+    await e.start_attack('wps', '02:00:00:00:00:02', True)      # Home Network advertises WPS
+    await asyncio.sleep(4.6)
+    snap = e.attack.snapshot()
+    assert snap['captured'] is True
+    assert snap['result']['pin'] == '12345670'
+    await e.stop()

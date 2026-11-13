@@ -30,16 +30,19 @@ client/wifisend.py (uv tool) ── захваты wifit3/wifite3 ────�
 ## Быстрый старт (телефон)
 
 ```bash
-# 1. Termux: из папки mobile проекта
-bash mobile/tools/install-termux.sh
+# 1. Termux: установка как глобальная тулза с USB-драйвером (основной способ)
+uv tool install 'wifit3-mobile[usb] @ git+https://github.com/ijo42/wifi-crackd.git#subdirectory=mobile'
+# (альтернатива без uv: bash mobile/tools/install-termux.sh)
 
 # 2. Hashtopolis: адрес/токен — один раз
 wifit3-mobile-htp set --url https://htp.example.com --token <API-токен>
 
-# 3. Запуск: APK («Демо без USB» / «Запустить / подключить Termux») или вручную
+# 3. Запуск: APK («Запустить USB-режим в Termux») или вручную
 wifit3-mobile            # код подключения печатается в терминале
-wifit3-mobile --demo     # без USB, синтетические данные, отправка заблокирована
+wifit3-mobile --demo     # диагностика без USB, синтетические данные, отправка заблокирована
 ```
+
+Останов без Ctrl+C: кнопка «Завершить модуль» во вкладке «Модуль» веб-интерфейса, «Стоп модуль» в APK или `wifit3-mobile-service stop`.
 
 В интерфейсе: «Адаптер» → разрешение на аудит → сканирование; детали сети → **Deauth** для
 нового хендшейка; вкладка **«Хеши»** → экспорт hc22000 или отправка на Hashtopolis.
