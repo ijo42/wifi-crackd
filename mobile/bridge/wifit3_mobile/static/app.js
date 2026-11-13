@@ -122,16 +122,14 @@ function render(data) {
 function renderNetworks(){
   if(!state)return;
   const q=$('search').value.toLocaleLowerCase(),band=$('filterBand').value,sort=$('sort').value;
-  const enc=$('filterEnc').value,hashF=$('filterHash').value,cliF=$('filterClients').value;
+  const enc=$('filterEnc').value;
   const targets=$('filterTargets').value;
   // «Потенциальная цель»: клиенты есть (кого деаутить), хешей ещё нет (что добывать)
   const potential=n=>n.clients.length>0&&!(n.captures>0);
   const list=state.networks.filter(n=>(n.ssid+' '+n.bssid).toLocaleLowerCase().includes(q)
       && (band==='all'||(band==='2g'?n.channel<=14:n.channel>14))
       && (targets==='any'||potential(n))
-      && (enc==='all'||(enc==='SCE'?(n.encryption||'').includes('WPA2/WPA3'):(n.encryption||'').includes(enc)))
-      && (hashF==='any'||(hashF==='no'?!(n.captures>0):(n.captures>0)))
-      && (cliF==='any'||(cliF==='has'?n.clients.length>0:n.clients.length===0)))
+      && (enc==='all'||(enc==='SCE'?(n.encryption||'').includes('WPA2/WPA3'):(n.encryption||'').includes(enc))))
     .sort((a,b)=>sort==='ssid'?a.ssid.localeCompare(b.ssid):sort==='channel'?a.channel-b.channel
       :sort==='captures'?(b.captures||0)-(a.captures||0):sort==='clients'?b.clients.length-a.clients.length:b.signal-a.signal);
   $('shownCount').textContent='НАЙДЕННЫЕ СЕТИ / '+list.length;
@@ -257,7 +255,7 @@ $('refresh').addEventListener('click',()=>action('refresh'));
 $('start').addEventListener('click',()=>{if(!$('device').value || !$('authorized').checked){selectView('devices');return;}action('start',{device_id:$('device').value,band:$('band').value,authorized:true});});
 $('stop').addEventListener('click',()=>action('stop'));
 $('authorized').addEventListener('change',controls);$('device').addEventListener('change',controls);
-for(const id of ['search','filterBand','sort','filterEnc','filterHash','filterClients','filterTargets'])$(id).addEventListener('input',renderNetworks);
+for(const id of ['search','filterBand','sort','filterEnc','filterTargets'])$(id).addEventListener('input',renderNetworks);
 for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('click',()=>selectView(b.dataset.view));
 $('closeDetails').addEventListener('click',()=>$('details').close());
 $('export').addEventListener('click',exportReport);

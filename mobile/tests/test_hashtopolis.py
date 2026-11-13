@@ -52,17 +52,39 @@ class Stub(BaseHTTPRequestHandler):
         return self._reply(404, {"error": "not found"})
 
     def do_GET(self):
+        if self.path.startswith("/api/v2/ui/pretasks") and "?" not in self.path:
+            if not self._authed():
+                return self._reply(401, {"error": "unauthorized"})
+            return self._reply(200, {"data": PRETASKS})          # bare cascade step
+        if self.path.startswith("/api/v2/ui/pretasks?") and ("size%5D=1000" in self.path or "page%5Bafter%5D" in self.path):
+            # UI-shaped cursor-pagination step (mirrors the real server response shape)
+            if not self._authed():
+                return self._reply(401, {"error": "unauthorized"})
+            if getattr(self.server, "fail_shaped", False):
+                return self._reply(400, {"title": "Malformed request", "status": 400,
+                                         "type": "about:blank"})
+            data = list(getattr(self.server, "shaped_pretasks", None) or PRETASKS)
+            for t in data:                                       # file ids arrive inline
+                t.setdefault("relationships", {}).setdefault("pretaskFiles", {})                     .setdefault("data", [{"type": "file", "id": 11}, {"type": "file", "id": 12}])
+            after = "page%5Bafter%5D" in self.path
+            chunk = data[100:] if after else data[:100]
+            nxt = ("/api/v2/ui/pretasks?page%5Bafter%5D=CUR&include=pretaskFiles&sort=priority"
+                   if len(data) > 100 and not after else None)
+            return self._reply(200, {"data": chunk, "links": {"next": nxt},
+                                     "meta": {"page": {"total_elements": len(data)}}})
         if self.path == "/api/v2/ui/pretasks?page%5Bsize%5D=10000":
             if not self._authed():
                 return self._reply(401, {"error": "unauthorized"})
             if getattr(self.server, "fail_big_page", False):
-                # newer Hashtopolis: oversized page[size] is a malformed request
                 return self._reply(400, {"title": "Malformed request", "status": 400,
                                          "type": "about:blank"})
             return self._reply(200, {"data": PRETASKS})
         if self.path.startswith("/api/v2/ui/pretasks?") and "page%5Bnumber%5D" in self.path:
             if not self._authed():
                 return self._reply(401, {"error": "unauthorized"})
+            if getattr(self.server, "fail_numbered", False):
+                return self._reply(400, {"title": "Malformed request", "status": 400,
+                                         "type": "about:blank"})
             from urllib.parse import parse_qs, urlsplit
             qs = parse_qs(urlsplit(self.path).query)
             number = int(qs.get("page[number]", ["1"])[0])
@@ -157,18 +179,45 @@ def test_config_roundtrip_and_masking(tmp_path):
     assert hashtopolis.load_config(tmp_path) == {}
 
 
-def test_pretasks_pagination_fallback_on_400(stub_url):
-    """Newer Hashtopolis rejects page[size]=10000; the client must fall back to pages."""
+def test_pretasks_ui_shaped_default_with_embedded_files(stub_url):
+    """Default path: UI-shaped request succeeds and file ids come from the inline
+    relationships (no separate /pretaskFiles request)."""
     url, server = stub_url
-    server.fail_big_page = True
-    server.paged_pretasks = PRETASKS
+    c = client(url)
+    got = c.pretasks()
+    assert [pt["id"] for pt in got] == ["1", "2", "3", "9"]
+    assert c.pretask_file_ids(1) == [11, 12]                   # from cache
+    gets = [r for r in server.requests if r[0] == "get-pretaskFiles"]
+    assert gets == []
+
+
+def test_pretasks_cursor_followed(stub_url):
+    url, server = stub_url
+    big = [dict(PRETASKS[i % len(PRETASKS)], id=str(i + 1)) for i in range(150)]
+    server.shaped_pretasks = big
+    got = client(url).pretasks()
+    assert len(got) == 150 and got[-1]["id"] == "150"          # cursor link followed
+
+
+def test_pretasks_fallback_to_big_page(stub_url):
+    url, server = stub_url
+    server.fail_shaped = True
     assert client(url).pretasks() == PRETASKS
 
 
-def test_pretasks_pagination_multiple_pages(stub_url):
+def test_pretasks_fallback_chain_to_numbered(stub_url):
     url, server = stub_url
+    server.fail_shaped = True
     server.fail_big_page = True
     big = [dict(PRETASKS[i % len(PRETASKS)], id=str(i + 1)) for i in range(250)]
     server.paged_pretasks = big
     got = client(url).pretasks()
-    assert len(got) == 250 and got[0]["id"] == "1" and got[-1]["id"] == "250"
+    assert len(got) == 250 and got[-1]["id"] == "250"
+
+
+def test_pretasks_fallback_chain_to_bare(stub_url):
+    url, server = stub_url
+    server.fail_shaped = True
+    server.fail_big_page = True
+    server.fail_numbered = True
+    assert client(url).pretasks() == PRETASKS

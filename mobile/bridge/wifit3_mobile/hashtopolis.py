@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
+from urllib.parse import urlsplit
 
 # дефолтная эскалационная цепочка — подстроки имён pretask'ов сервера (как в wifisend)
 DEFAULT_CHAIN = (
@@ -69,6 +70,7 @@ class HashtopolisClient:
         self._user = (user or "").strip() or None
         self._password = password or None
         self._jwt = None
+        self._pretask_files_cache = {}
         self.timeout = timeout
 
     # ---- transport ------------------------------------------------------
@@ -122,21 +124,79 @@ class HashtopolisClient:
         return {"ok": True, "pretasks": len(tasks)}
 
     def pretasks(self):
-        """All server pretasks. Newer Hashtopolis builds reject page[size]=10000 with
-        HTTP 400 (Malformed request) — fall back to numbered 100-per-page pagination."""
+        """All server pretasks, tolerating Hashtopolis builds with different pagination.
+
+        Cascade (each step falls back on HTTP 400):
+        1. the exact shape of the Hashtopolis web UI request (page[size]=1000,
+           include=pretaskFiles, sort=priority) — cursor links are followed and the
+           embedded relationships carry each pretask's file ids (no extra requests);
+        2. page[size]=10000 — old servers return everything at once;
+        3. numbered pages of 100 (JSON-API page[number]);
+        4. a bare request (server default page).
+        """
+        self._pretask_files_cache = {}
+        try:
+            payload = self._call("GET", "/api/v2/ui/pretasks?page%5Bsize%5D=1000"
+                                        "&include=pretaskFiles&sort=priority")
+            tasks = self._collect_cursor(payload)
+            return tasks
+        except HashtopolisError as exc:
+            if exc.status != 400:
+                raise
         try:
             return self._call("GET", "/api/v2/ui/pretasks?page%5Bsize%5D=10000")["data"]
         except HashtopolisError as exc:
             if exc.status != 400:
                 raise
-        out, page = [], 1
-        while True:
-            data = self._call("GET", f"/api/v2/ui/pretasks"
-                                     f"?page%5Bsize%5D=100&page%5Bnumber%5D={page}")["data"]
-            out.extend(data)
-            if len(data) < 100:
-                return out
-            page += 1
+        try:
+            out, page = [], 1
+            while True:
+                data = self._call("GET", f"/api/v2/ui/pretasks"
+                                         f"?page%5Bsize%5D=100&page%5Bnumber%5D={page}")["data"]
+                out.extend(data)
+                if len(data) < 100:
+                    return out
+                page += 1
+        except HashtopolisError as exc:
+            if exc.status != 400:
+                raise
+        return self._call("GET", "/api/v2/ui/pretasks")["data"]
+
+    def _collect_cursor(self, payload):
+        """Collect data[] following JSON-API cursor links; remember embedded file ids."""
+        tasks = list(payload.get("data", []))
+        self._extract_embedded_files(tasks)
+        next_link = (payload.get("links") or {}).get("next")
+        seen = set()
+        while next_link:
+            if next_link in seen:
+                break                       # defensive: a cursor loop must not hang the send
+            seen.add(next_link)
+            parts = urlsplit(next_link)
+            payload = self._call("GET", parts.path + ("?" + parts.query if parts.query else ""))
+            chunk = payload.get("data", [])
+            tasks.extend(chunk)
+            self._extract_embedded_files(chunk)
+            next_link = (payload.get("links") or {}).get("next")
+        return tasks
+
+    def _extract_embedded_files(self, tasks):
+        """pretaskFiles often arrive inline (relationships.pretaskFiles.data); remember
+        them so create_task_from_pretask needs no per-task request."""
+        for task in tasks:
+            rel = (task.get("relationships", {}) or {}).get("pretaskFiles", {}) \
+                .get("data", [])
+            try:
+                self._pretask_files_cache[int(task["id"])] = [int(f["id"]) for f in rel]
+            except (KeyError, TypeError, ValueError):
+                continue
+
+    def pretask_file_ids(self, pretask_id):
+        cached = (self._pretask_files_cache or {}).get(int(pretask_id))
+        if cached is not None:
+            return cached
+        rel = self._call("GET", f"/api/v2/ui/pretasks/{pretask_id}/pretaskFiles")
+        return [int(d["id"]) for d in rel.get("data", [])]
 
     def newest_binary(self):
         data = self._call("GET", "/api/v2/ui/crackers")["data"]
@@ -144,10 +204,6 @@ class HashtopolisClient:
             raise HashtopolisError("На сервере нет cracker binary — залей hashcat-бинарник.")
         best = max(data, key=lambda d: tuple(map(int, d["attributes"]["version"].split("."))))
         return int(best["id"]), best["attributes"]["version"]
-
-    def pretask_file_ids(self, pretask_id):
-        rel = self._call("GET", f"/api/v2/ui/pretasks/{pretask_id}/pretaskFiles")
-        return [int(d["id"]) for d in rel.get("data", [])]
 
     def create_hashlist(self, name, lines, access_group, note):
         b64 = base64.b64encode("\n".join(lines).encode()).decode()

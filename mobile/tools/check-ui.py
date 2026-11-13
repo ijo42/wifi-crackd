@@ -75,14 +75,6 @@ async def main():
   await page.locator('#filterEnc').select_option('OPEN')
   assert await page.locator('.network').count()==1
   await page.locator('#filterEnc').select_option('all')
-  await page.locator('#filterHash').select_option('has')
-  assert await page.locator('.network').count()==1           # only the deauth/PMKID target
-  await page.locator('#filterHash').select_option('no')
-  assert await page.locator('.network').count()==3
-  await page.locator('#filterHash').select_option('any')
-  await page.locator('#filterClients').select_option('has')
-  assert await page.locator('.network').count()==0           # demo networks have no clients
-  await page.locator('#filterClients').select_option('any')
   await page.locator('#filterTargets').select_option('potential')
   assert await page.locator('.network').count()==0           # clients AND no hashes: none in DEMO
   await page.locator('#filterTargets').select_option('any')
@@ -124,7 +116,7 @@ async def main():
    raise AssertionError('server still alive after shutdown')
   except Exception:
    pass
-  print('UI 0.4.3: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth+pmkid+wps DEMO, filters+sort, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
+  print('UI 0.4.4: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth+pmkid+wps DEMO, targets-filter+sort, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
   await browser.close()
 
 asyncio.run(main())
