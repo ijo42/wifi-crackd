@@ -147,3 +147,30 @@ async def test_demo_wps_campaign_finds_pin_and_gates():
     assert snap['captured'] is True
     assert snap['result']['pin'] == '12345670'
     await e.stop()
+
+
+@pytest.mark.asyncio
+async def test_pmkid_snapshot_without_captured_attr():
+    """Live PmkidHarvestAttack has no .captured — snapshot/result must not touch it."""
+    from wifit3_mobile.attacks import CampaignControl
+    engine = _FakeEngine()
+    engine.phase = 'scanning'
+    control = CampaignControl(engine)
+    fake = type('F', (), {})()
+    fake.target = type('T', (), {'bssid': '02:00:00:00:00:aa', 'ssid': 'x', 'channel': 6})()
+    fake.attempts = 3
+    fake.client_mac = '02:de:mo:00:00:01'
+    fake.pmkid = b'\x01' * 16
+    fake.fail_reason = None
+    fake.done = True
+    fake.stopped = True
+    fake.check_auto_stop = lambda: False
+    async def stop():
+        pass
+    fake.stop = stop
+    control.campaign, control.key = fake, 'pmkid'
+    snap = control.snapshot()
+    assert snap['captured'] is True and snap['result']['harvested'] is True
+    assert snap['stats']['harvested'] is True
+    await control._finish(fake, 'pmkid', user_stop=True)
+    assert control.last['captured'] is True and control.last['key'] == 'pmkid'

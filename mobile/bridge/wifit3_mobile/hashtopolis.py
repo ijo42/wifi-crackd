@@ -122,7 +122,21 @@ class HashtopolisClient:
         return {"ok": True, "pretasks": len(tasks)}
 
     def pretasks(self):
-        return self._call("GET", "/api/v2/ui/pretasks?page%5Bsize%5D=10000")["data"]
+        """All server pretasks. Newer Hashtopolis builds reject page[size]=10000 with
+        HTTP 400 (Malformed request) — fall back to numbered 100-per-page pagination."""
+        try:
+            return self._call("GET", "/api/v2/ui/pretasks?page%5Bsize%5D=10000")["data"]
+        except HashtopolisError as exc:
+            if exc.status != 400:
+                raise
+        out, page = [], 1
+        while True:
+            data = self._call("GET", f"/api/v2/ui/pretasks"
+                                     f"?page%5Bsize%5D=100&page%5Bnumber%5D={page}")["data"]
+            out.extend(data)
+            if len(data) < 100:
+                return out
+            page += 1
 
     def newest_binary(self):
         data = self._call("GET", "/api/v2/ui/crackers")["data"]

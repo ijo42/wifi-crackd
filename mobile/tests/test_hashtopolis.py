@@ -55,7 +55,20 @@ class Stub(BaseHTTPRequestHandler):
         if self.path == "/api/v2/ui/pretasks?page%5Bsize%5D=10000":
             if not self._authed():
                 return self._reply(401, {"error": "unauthorized"})
+            if getattr(self.server, "fail_big_page", False):
+                # newer Hashtopolis: oversized page[size] is a malformed request
+                return self._reply(400, {"title": "Malformed request", "status": 400,
+                                         "type": "about:blank"})
             return self._reply(200, {"data": PRETASKS})
+        if self.path.startswith("/api/v2/ui/pretasks?") and "page%5Bnumber%5D" in self.path:
+            if not self._authed():
+                return self._reply(401, {"error": "unauthorized"})
+            from urllib.parse import parse_qs, urlsplit
+            qs = parse_qs(urlsplit(self.path).query)
+            number = int(qs.get("page[number]", ["1"])[0])
+            data = getattr(self.server, "paged_pretasks", None) or PRETASKS
+            chunk = data[(number - 1) * 100:number * 100]
+            return self._reply(200, {"data": chunk})
         if self.path == "/api/v2/ui/crackers":
             return self._reply(200, {"data": [{"id": 7, "attributes": {"version": "6.2.1"}},
                                               {"id": 8, "attributes": {"version": "8.1.2"}}]})
@@ -142,3 +155,20 @@ def test_config_roundtrip_and_masking(tmp_path):
     assert "token" not in hashtopolis.load_config(tmp_path)
     hashtopolis.clear_config(tmp_path)
     assert hashtopolis.load_config(tmp_path) == {}
+
+
+def test_pretasks_pagination_fallback_on_400(stub_url):
+    """Newer Hashtopolis rejects page[size]=10000; the client must fall back to pages."""
+    url, server = stub_url
+    server.fail_big_page = True
+    server.paged_pretasks = PRETASKS
+    assert client(url).pretasks() == PRETASKS
+
+
+def test_pretasks_pagination_multiple_pages(stub_url):
+    url, server = stub_url
+    server.fail_big_page = True
+    big = [dict(PRETASKS[i % len(PRETASKS)], id=str(i + 1)) for i in range(250)]
+    server.paged_pretasks = big
+    got = client(url).pretasks()
+    assert len(got) == 250 and got[0]["id"] == "1" and got[-1]["id"] == "250"

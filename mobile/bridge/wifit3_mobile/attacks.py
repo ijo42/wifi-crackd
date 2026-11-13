@@ -160,9 +160,9 @@ class CampaignControl:
 
     def _result(self, campaign, key):
         if key == "deauth":
-            return {"captured": bool(campaign.captured)}
+            return {"captured": bool(getattr(campaign, "captured", False))}
         if key == "pmkid":
-            return {"harvested": bool(campaign.pmkid),
+            return {"harvested": bool(getattr(campaign, "pmkid", None)),
                     "fail": campaign.fail_reason.value if campaign.fail_reason else None}
         return {"pin": campaign.state.found_pin, "psk": campaign.state.found_psk,
                 "status": campaign.status}
@@ -197,16 +197,17 @@ class CampaignControl:
             return {"active": False, "key": None, "bssid": "", "ssid": "", "captured": False,
                     "stats": {}, "headline": "Кампания не запущена.", "result": None,
                     "started_at": None, "error": self.error, "last": last}
+        result = self._result(campaign, self.key)
         return {
             "active": self.active,
             "key": self.key,
             "bssid": campaign.target.bssid,
             "ssid": getattr(campaign.target, "ssid", "") or "",
-            "captured": bool(campaign.captured or self._result(campaign, self.key).get(
-                "harvested") or self._result(campaign, self.key).get("pin") is not None),
+            "captured": bool(getattr(campaign, "captured", False)
+                             or result.get("harvested") or result.get("pin") is not None),
             "stats": self._stats(),
             "headline": self._headline(),
-            "result": self._result(campaign, self.key),
+            "result": result,
             "started_at": self.started_at,
             "error": self.error,
             "last": dict(self.last) if self.last else None,
@@ -315,7 +316,7 @@ class CampaignControl:
             "key": key,
             "bssid": campaign.target.bssid,
             "ssid": getattr(campaign.target, "ssid", "") or "",
-            "captured": bool(campaign.captured or result.get("harvested")
+            "captured": bool(getattr(campaign, "captured", False) or result.get("harvested")
                              or result.get("pin") is not None),
             "result": result,
             "stats": self._stats() if self.campaign is campaign else {},

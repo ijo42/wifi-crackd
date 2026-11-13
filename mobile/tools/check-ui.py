@@ -83,6 +83,9 @@ async def main():
   await page.locator('#filterClients').select_option('has')
   assert await page.locator('.network').count()==0           # demo networks have no clients
   await page.locator('#filterClients').select_option('any')
+  await page.locator('#filterTargets').select_option('potential')
+  assert await page.locator('.network').count()==0           # clients AND no hashes: none in DEMO
+  await page.locator('#filterTargets').select_option('any')
   await page.locator('#sort').select_option('clients')       # sorts without error
   assert await page.locator('.network').count()==4
   async with page.expect_download() as dl:
@@ -121,7 +124,7 @@ async def main():
    raise AssertionError('server still alive after shutdown')
   except Exception:
    pass
-  print('UI 0.4.2: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth+pmkid+wps DEMO, filters+sort, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
+  print('UI 0.4.3: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth+pmkid+wps DEMO, filters+sort, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
   await browser.close()
 
 asyncio.run(main())
