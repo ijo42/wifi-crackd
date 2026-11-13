@@ -174,3 +174,48 @@ async def test_pmkid_snapshot_without_captured_attr():
     assert snap['stats']['harvested'] is True
     await control._finish(fake, 'pmkid', user_stop=True)
     assert control.last['captured'] is True and control.last['key'] == 'pmkid'
+
+
+@pytest.mark.asyncio
+async def test_attack_all_sweep_demo_captures_every_target():
+    e = await started_engine()
+    state = await e.start_attack_all('deauth', True)
+    sweep = state['attack']['sweep']
+    assert sweep is not None and sweep['total'] == 2 and sweep['active'] is True
+    for _ in range(50):
+        await asyncio.sleep(0.4)
+        sweep = e.attack.snapshot()['sweep']
+        if not sweep['active']:
+            break
+    assert sweep['done'] == 2
+    assert all(r['ok'] for r in sweep['results'])
+    assert sum(1 for r in sweep['results'] if r['captured']) == 2
+    assert e.snapshot()['hashes']['count'] == 2
+    await e.stop()
+
+
+@pytest.mark.asyncio
+async def test_sweep_stop_midway():
+    e = await started_engine()
+    await e.start_attack_all('deauth', True)
+    await asyncio.sleep(0.6)                       # first target in flight
+    await e.stop_attack()
+    snap = e.attack.snapshot()
+    assert snap['sweep']['active'] is False
+    await e.stop()
+
+
+@pytest.mark.asyncio
+async def test_sweep_requires_consent_and_session():
+    e = Engine(demo=True)
+    with pytest.raises(ValueError):
+        await e.start_attack_all('deauth', None)
+    await e.refresh()
+    with pytest.raises(ValueError):
+        await e.start_attack_all('deauth', True)   # not scanning
+    await e.start('demo', 'all')
+    await asyncio.sleep(0)
+    state = await e.start_attack_all('wps', True)  # Home Network advertises WPS
+    assert state['attack']['sweep']['total'] == 1
+    await e.stop_attack()
+    await e.stop()

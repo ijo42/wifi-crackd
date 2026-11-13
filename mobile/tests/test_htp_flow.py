@@ -94,8 +94,8 @@ def test_htp_config_api_saves_masks_and_clears(api_server, tmp_path):
     assert request('POST', '/api/htp', {'url': 'https://htp.example', 'user': 'admin',
                                         'token': 'sekret'})[0] == 200
     status, state = request('GET', '/api/state')
-    assert status == 200 and state['htp'] == {'url': 'https://htp.example', 'user': 'admin',
-                                              'has_token': True, 'demo': True}
+    assert status == 200 and state['htp']['url'] == 'https://htp.example'
+    assert state['htp']['has_token'] is True and state['htp']['submitted'] == []
     stored = json.loads((tmp_path / 'htp.json').read_text())
     assert stored['token'] == 'sekret'                          # private 0600 file keeps it
     assert request('POST', '/api/htp', {'clear': True})[0] == 200
@@ -143,3 +143,30 @@ def test_htp_cli(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr('sys.argv', ['wifit3-mobile-htp', '--state-dir', str(tmp_path), 'clear'])
     htp_cli.main()
     assert not (tmp_path / 'htp.json').exists()
+
+
+@pytest.mark.asyncio
+async def test_send_books_submission_and_status_updates(stub_url):
+    """Regression (0.4.6): send stores hashlists for tracking; status polls cracked/total."""
+    url, server = stub_url
+    e = Engine(demo=False)
+    e._hash_cache = {'02:00:00:00:00:02': ['WPA*01*0011*a*a*414243***']}
+    result = await e.hashtopolis_send(url=url, user="admin", password="pw",
+                                      batch=10, pretask_ids=[1])
+    state = e.htp_state()
+    assert state['submitted'] == [{'hashlist': result['batches'][0]['hashlist'],
+                                   'name': result['batches'][0]['name'],
+                                   'count': 1, 'tasks': result['batches'][0]['tasks'],
+                                   'cracked': 0, 'total': 1}]
+    assert state['last']['url'] == url and state['last']['hashcat'] == '8.1.2'
+    status = await e.hashtopolis_status(url=url, user="admin", password="pw")
+    assert status['submitted'][0]['cracked'] == 3 and status['submitted'][0]['total'] == 5
+    assert e.htp_state()['submitted'][0]['cracked'] == 3   # persisted in engine state
+
+
+@pytest.mark.asyncio
+async def test_status_with_no_submission_is_empty(stub_url):
+    url, _server = stub_url
+    e = Engine(demo=False)
+    assert await e.hashtopolis_status(url=url, user="admin", password="pw") == \
+        {"submitted": [], "cracked": 0, "total": 0}

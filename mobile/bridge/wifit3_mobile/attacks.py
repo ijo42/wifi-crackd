@@ -117,6 +117,10 @@ CAMPAIGN_LABELS = {"deauth": "Deauth: форсировать хендшейк",
                    "pmkid": "PMKID: собрать без клиентов",
                    "wps": "WPS PIN (включая Pixie Dust)"}
 
+# Sweep: per-target cap. Deauth/pmkid finish on their own quickly; WPS may run long,
+# so the sweep moves on after the cap and reports "no PIN on this pass".
+SWEEP_LIMITS = {"deauth": 180, "pmkid": 120, "wps": 900}
+
 
 class CampaignControl:
     """One campaign slot per session; snapshot() feeds the API state."""
@@ -127,7 +131,9 @@ class CampaignControl:
         self.started_at = None
         self.error = ""
         self.last = None                      # summary of the most recent campaign
+        self.sweep = None                     # attack-all-potential-targets state
         self._watcher = None
+        self._sweep_task = None
 
     def reset(self):
         self.campaign = None
@@ -135,9 +141,11 @@ class CampaignControl:
         self.started_at = None
         self.error = ""
         self.last = None
-        if self._watcher is not None:
-            self._watcher.cancel()
-            self._watcher = None
+        self.sweep = None
+        for task in (self._watcher, self._sweep_task):
+            if task is not None:
+                task.cancel()
+        self._watcher = self._sweep_task = None
 
     @property
     def active(self):
@@ -191,12 +199,13 @@ class CampaignControl:
         return f"● WPS PIN: {campaign.status} · фаза {st.phase} · проверено {st.tested}"
 
     def snapshot(self):
+        sweep = dict(self.sweep) if self.sweep else None
         campaign = self.campaign
         if campaign is None:
             last = dict(self.last) if self.last else None
             return {"active": False, "key": None, "bssid": "", "ssid": "", "captured": False,
                     "stats": {}, "headline": "Кампания не запущена.", "result": None,
-                    "started_at": None, "error": self.error, "last": last}
+                    "started_at": None, "error": self.error, "last": last, "sweep": sweep}
         result = self._result(campaign, self.key)
         return {
             "active": self.active,
@@ -211,7 +220,81 @@ class CampaignControl:
             "started_at": self.started_at,
             "error": self.error,
             "last": dict(self.last) if self.last else None,
+            "sweep": sweep,
         }
+
+    # ---- attack-all-potential-targets sweep -------------------------------
+    def _sweep_candidates(self, key):
+        """Potential targets for the sweep, per campaign type. Deauth needs observed
+        clients (someone to kick); PMKID needs only a harvestable PSK/RSN; WPS needs
+        an unlocked WPS beacon. Hashes already collected exclude a network everywhere."""
+        out = []
+        for n in self.engine.networks:
+            if n.get("captures"):
+                continue
+            if key == "deauth" and n.get("psk_family") and n.get("clients"):
+                out.append(n)
+            elif key == "pmkid" and n.get("psk_family") and n.get("rsn_valid") and not n.get("hidden"):
+                out.append(n)
+            elif key == "wps" and n.get("wps") and not n.get("wps_locked") and not n.get("hidden"):
+                out.append(n)
+        return out
+
+    async def start_all(self, key, authorized):
+        if key not in CAMPAIGN_LABELS:
+            raise ValueError("Неизвестная кампания.")
+        if authorized is not True:
+            raise ValueError("Подтвердите право на аудит оборудования.")
+        if self.sweep and self.sweep.get("active"):
+            raise ValueError("Режим атаки всех целей уже выполняется.")
+        if self.engine.phase != "scanning":
+            raise ValueError("Сначала запустите сканирование.")
+        candidates = self._sweep_candidates(key)
+        if not candidates:
+            raise ValueError("Нет потенциальных целей: нужны сети без хешей "
+                             "(для deauth — с наблюдаемыми клиентами).")
+        self.sweep = {"key": key, "active": True, "total": len(candidates), "done": 0,
+                      "current": "", "results": []}
+        self._sweep_task = asyncio.get_running_loop().create_task(
+            self._sweep_loop(key, candidates))
+        self.engine.log(f"Атака всех целей ({key}): {len(candidates)} цел(ей).")
+        return self.snapshot()
+
+    async def _sweep_loop(self, key, candidates):
+        total = len(candidates)
+        for i, n in enumerate(candidates, 1):
+            if not self.sweep or not self.sweep.get("active"):
+                break
+            if self.engine.phase != "scanning":
+                break
+            label = n.get("ssid") or n["bssid"]
+            self.sweep["current"] = label
+            self.engine.log(f"Атака всех целей: {i}/{total} → {label}")
+            try:
+                await self.start(key, n["bssid"])
+            except Exception as exc:
+                self.sweep["results"].append({"bssid": n["bssid"], "ssid": label,
+                                              "ok": False, "captured": False, "error": str(exc)})
+                self.sweep["done"] = i
+                continue
+            deadline = time.monotonic() + SWEEP_LIMITS.get(key, 180)
+            while (self.campaign is not None and not self.campaign.done
+                   and time.monotonic() < deadline
+                   and self.sweep and self.sweep.get("active")):
+                await asyncio.sleep(0.3)
+            if self.campaign is not None:
+                await self._stop_campaign()
+            captured = bool(self.last and self.last.get("captured"))
+            self.sweep["results"].append({"bssid": n["bssid"], "ssid": label,
+                                          "ok": True, "captured": captured})
+            self.sweep["done"] = i
+        if self.sweep:
+            captured = sum(1 for r in self.sweep["results"] if r.get("captured"))
+            self.sweep["active"] = False
+            self.sweep["current"] = ""
+            self.engine.log(f"Атака всех целей завершена: {self.sweep['done']}/{total}, "
+                            f"захватов: {captured}.")
+        self._sweep_task = None
 
     # ---- lifecycle -------------------------------------------------------
     async def start(self, key, bssid, authorized=None):
@@ -341,7 +424,23 @@ class CampaignControl:
             self.campaign, self.key = None, None
         await self._restore_hopping()
 
+    async def _stop_campaign(self):
+        """Stop only the current campaign; the sweep loop uses this between targets
+        (the public stop() would also deactivate the sweep)."""
+        campaign, key = self.campaign, self.key
+        if campaign is None:
+            return
+        try:
+            await campaign.stop()
+        except Exception as exc:
+            self.error = f"Остановка кампании сообщила об ошибке: {exc}"
+            self.engine.log(self.error)
+        await self._finish(campaign, key, user_stop=True)
+
     async def stop(self):
+        if self.sweep and self.sweep.get("active"):
+            self.sweep["active"] = False
+            self.engine.log("Атака всех целей остановлена пользователем.")
         campaign, key = self.campaign, self.key
         if campaign is None:
             return self.snapshot()
@@ -355,9 +454,12 @@ class CampaignControl:
 
     async def close(self):
         """Session teardown: request a cooperative stop without awaiting the task."""
-        if self._watcher is not None:
-            self._watcher.cancel()
-            self._watcher = None
+        if self.sweep:
+            self.sweep["active"] = False
+        for task in (self._watcher, self._sweep_task):
+            if task is not None:
+                task.cancel()
+        self._watcher = self._sweep_task = None
         if self.campaign is not None:
             try:
                 self.campaign.request_stop()

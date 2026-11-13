@@ -69,9 +69,20 @@ function controls() {
   $('export').disabled=!state.networks.length;
   $('shutdownModule').disabled=busy;
   const d=state.attack||{};
+  const sw=d.sweep;
+  $('sweepStatus').hidden=!sw;
+  $('sweepStart').disabled=busy || state.phase!=='scanning';
+  if(sw){
+    const got=(sw.results||[]).filter(r=>r.captured).length;
+    $('sweepStatus').textContent= sw.active
+      ? `Атака всех целей (${sw.key}): ${sw.done}/${sw.total} · сейчас: ${sw.current||'—'} · захватов: ${got}`
+      : `Атака всех целей (${sw.key}) завершена: ${sw.done}/${sw.total} · захватов: ${got}`;
+    $('sweepStart').textContent= sw.active?'■ Остановить атаку всех целей':'Атаковать все потенциальные цели';
+  } else $('sweepStart').textContent='Атаковать все потенциальные цели';
   const anyHere=!!(d.active && detailTarget);
   $('detailActions').hidden=!detailTarget || (!anyHere && state.phase!=='scanning');
   if(detailTarget)renderCampaignCard(detailTarget);
+  renderHtpSubmitted();
 }
 async function action(name, body={}) {
   if(busy)return; busy=true;controls();
@@ -217,6 +228,28 @@ function exportHashes() {
   if(window.Android && typeof window.Android.saveHashes==='function')window.Android.saveHashes(text);
   else{const url=URL.createObjectURL(new Blob([text],{type:'text/plain'}));const a=el('a');a.href=url;a.download='wifit3-mobile.hc22000';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 }
+function renderHtpSubmitted() {
+  const sub=(state&&state.htp&&state.htp.submitted)||[];
+  const box=$('htpSubmitted');box.replaceChildren();
+  for(const e of sub){
+    const done=e.cracked>=e.count&&e.count>0;
+    box.append(el('span','tag '+(done?'good':''),
+      `hashlist ${e.hashlist} · ${e.cracked}/${e.count} · задач ${(e.tasks||[]).length}`));
+  }
+  $('htpRefresh').hidden=!sub.length;
+}
+async function htpRefreshStatus() {
+  $('htpRefresh').disabled=true;
+  try{
+    const data=await api('hashes/status',{});
+    $('htpResult').hidden=false;
+    const lines=(data.submitted||[]).map(e=>`hashlist ${e.hashlist}: ${e.cracked}/${e.count} взломано`);
+    $('htpResult').textContent=`Взломано ${data.cracked||0} из ${data.total||0} хешей.\n`+lines.join('\n');
+    if(state&&state.htp&&state.htp.submitted)state.htp.submitted=data.submitted||state.htp.submitted;
+    renderHtpSubmitted();
+  }catch(e){showError(e.message);}
+  finally{$('htpRefresh').disabled=false;}
+}
 async function htpCall(path, body) {
   const buttons={'htp':$('htpSave'),'htp/test':$('htpTest'),'hashes/send':$('htpSend')};
   const btn=buttons[path];if(btn)btn.disabled=true;
@@ -265,6 +298,12 @@ $('htpSave').addEventListener('click',()=>htpCall('htp',{url:$('htpUrl').value.t
 $('htpClear').addEventListener('click',()=>htpCall('htp',{clear:true}));
 $('htpTest').addEventListener('click',()=>htpCall('htp/test',{url:$('htpUrl').value.trim(),user:$('htpUser').value.trim(),token:$('htpToken').value.trim(),password:$('htpPassword').value}));
 $('htpSend').addEventListener('click',()=>htpCall('hashes/send',{url:$('htpUrl').value.trim(),user:$('htpUser').value.trim(),token:$('htpToken').value.trim(),password:$('htpPassword').value,batch:Math.max(1,parseInt($('htpBatch').value,10)||250),dry_run:$('htpDry').checked,all_wpa:$('htpAllWpa').checked}));
+$('sweepStart').addEventListener('click',()=>{
+  const sw=state&&state.attack&&state.attack.sweep;
+  if(sw&&sw.active)action('attack/stop');
+  else action('attack/all',{campaign:$('sweepKey').value,authorized:$('authorized').checked===true});
+});
+$('htpRefresh').addEventListener('click',htpRefreshStatus);
 $('disconnect').addEventListener('click',()=>{connected=false;token='';clearTimeout(pollHandle);sessionStorage.removeItem('wifit3-token');$('workspace').hidden=true;$('pairing').hidden=false;$('linkState').textContent='Отключено';});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden && connected)poll();});
 if(token)pair();

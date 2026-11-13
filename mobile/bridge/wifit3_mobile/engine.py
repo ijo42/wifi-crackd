@@ -71,6 +71,8 @@ class Engine:
         self.attack = CampaignControl(self)
         self.demo_captures: dict[str, list[str]] = {}
         self._hash_cache: dict[str, list[str]] = {}
+        self.htp_submitted: list[dict] = []      # hashlists sent this session (crack tracking)
+        self.htp_last: dict | None = None        # last hashtopolis_send summary
         self.phase = "idle"
         self.error = ""
         self.progress = "Подключите USB-адаптер и обновите список."
@@ -131,6 +133,8 @@ class Engine:
             self.disconnect_observations = DisconnectObservations()
             self.demo_captures = {}
             self._hash_cache = {}
+            self.htp_submitted = []
+            self.htp_last = None
             self.attack.reset()
             self.phase, self.error, self.band = "starting", "", band
             self.progress = "Инициализация адаптера…"
@@ -241,6 +245,12 @@ class Engine:
     async def start_deauth(self, bssid, authorized):
         return await self.start_attack("deauth", bssid, authorized)
 
+    async def start_attack_all(self, campaign, authorized):
+        if authorized is not True:
+            raise ValueError("Подтвердите право на аудит оборудования.")
+        await self.attack.start_all(campaign, authorized)
+        return self.snapshot()
+
     async def stop_attack(self):
         await self.attack.stop()
         return self.snapshot()
@@ -252,7 +262,9 @@ class Engine:
     def htp_state(self):
         cfg = hashtopolis.load_config(self.state_dir) if self.state_dir else {}
         return {"url": cfg.get("url", ""), "user": cfg.get("user", ""),
-                "has_token": bool(cfg.get("token")), "demo": self.demo}
+                "has_token": bool(cfg.get("token")), "demo": self.demo,
+                "submitted": [dict(e) for e in self.htp_submitted],
+                "last": self.htp_last}
 
     def htp_save(self, url, token="", user=""):
         if not self.state_dir:
@@ -312,14 +324,40 @@ class Engine:
                     pt_name = pt["attributes"]["taskName"].replace("WPA2 | ", "").strip()
                     task_ids.append(client.create_task_from_pretask(
                         pt, hl_id, binary_id, f"{name} | {pt_name}"))
-                results.append({"hashlist": hl_id, "count": len(chunk), "tasks": task_ids})
+                results.append({"hashlist": hl_id, "name": name, "count": len(chunk),
+                                "tasks": task_ids})
                 self.log(f"Hashtopolis: батч {i}/{len(batch_list)} → hashlist {hl_id} "
                          f"({len(chunk)} хешей), задач: {len(task_ids)}")
             return {"url": resolved_url, "hashcat": version,
                     "chain": [pt["attributes"]["taskName"] for pt in chain],
                     "batches": results, "total": len(lines)}
         self.log(f"Hashtopolis: отправка {len(lines)} хешей ({len(batch_list)} батч(ей)) на {resolved_url}")
-        return await asyncio.to_thread(work)
+        result = await asyncio.to_thread(work)
+        # Book the submission so the UI can track crack progress across reloads.
+        self.htp_submitted = self.htp_submitted + [
+            {"hashlist": b["hashlist"], "name": b["name"], "count": b["count"],
+             "tasks": b["tasks"], "cracked": 0, "total": b["count"]}
+            for b in result["batches"]]
+        self.htp_last = {"at": utcnow(), "url": result["url"], "hashcat": result["hashcat"],
+                         "chain": result["chain"], "total": result["total"],
+                         "hashlists": [b["hashlist"] for b in result["batches"]]}
+        return result
+
+    async def hashtopolis_status(self, url="", token="", user="", password=""):
+        """Refresh cracked/total for every hashlist submitted this session."""
+        if not self.htp_submitted:
+            return {"submitted": [], "cracked": 0, "total": 0}
+        client, resolved_url = self._htp_client(url, token, user, password)
+        def work(entry):
+            cracked, total = client.hashlist_state(entry["hashlist"])
+            entry["cracked"], entry["total"] = cracked, total
+        for entry in self.htp_submitted:
+            await asyncio.to_thread(work, entry)
+        cracked = sum(e["cracked"] for e in self.htp_submitted)
+        total = sum(e["total"] for e in self.htp_submitted)
+        self.log(f"Hashtopolis: статус — взломано {cracked} из {total} хешей.")
+        return {"url": resolved_url, "submitted": [dict(e) for e in self.htp_submitted],
+                "cracked": cracked, "total": total}
 
     async def stop(self):
         async with self._lock:
@@ -381,5 +419,8 @@ class Engine:
                            "captures": 0, "pmkid": False,
                            "psk_family": enc != "OPEN",
                            "hidden": ssid == "", "rsn_valid": enc != "OPEN",
-                           "clients": []})
+                           # synthetic clients so sweep/filter demo flows have targets
+                           "clients": ([] if enc == "OPEN" or i == 2 else
+                                       [{"mac": f"02:00:00:00:0{1+i}:aa", "signal": -52 - 3*i,
+                                         "packets": 100 + 17*i}])})
         return result

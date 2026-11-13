@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wifit3-mobile"
-version = "0.4.5"
+version = "0.4.6"
 description = "Wi-Fi survey with authorized deauth, hc22000 collection and Hashtopolis upload (Android/Termux)"
 readme = "README.md"
 requires-python = ">=3.11"

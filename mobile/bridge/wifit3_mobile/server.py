@@ -115,6 +115,9 @@ def make_handler(engine, loop, token, port, shutdown_event=None):
                 elif path == "/api/attack/start":
                     data = self.run_async(engine.start_attack(
                         body.get("campaign"), body.get("bssid"), body.get("authorized")))
+                elif path == "/api/attack/all":
+                    data = self.run_async(engine.start_attack_all(
+                        body.get("campaign"), body.get("authorized")))
                 elif path == "/api/attack/stop":
                     data = self.run_async(engine.stop_attack())
                 elif path == "/api/deauth/start":      # legacy alias (pre-0.4.2 clients)
@@ -137,6 +140,10 @@ def make_handler(engine, loop, token, port, shutdown_event=None):
                                                user=str(body.get("user", "")))
                 elif path == "/api/htp/test":
                     data = self.run_async(engine.hashtopolis_test(
+                        url=body.get("url", ""), token=body.get("token", ""),
+                        user=body.get("user", ""), password=body.get("password", "")))
+                elif path == "/api/hashes/status":
+                    data = self.run_async(engine.hashtopolis_status(
                         url=body.get("url", ""), token=body.get("token", ""),
                         user=body.get("user", ""), password=body.get("password", "")))
                 elif path == "/api/shutdown" and shutdown_event is not None:

@@ -48,10 +48,16 @@ async def main():
   await page.wait_for_function("() => document.getElementById('campaignStatus').textContent.includes('WPS PIN найден')",timeout=15000)
   assert '12345670' in await page.locator('#campaignStatus').inner_text()
   await page.locator('#closeDetails').click()
+  # --- 0.4.6: attack-all-potential-targets sweep (deauth; candidates = Home) ---
+  await page.locator('#sweepStart').wait_for(state='visible')
+  await page.locator('#sweepStart').click()
+  await page.wait_for_function("() => document.getElementById('sweepStatus').textContent.includes('Атака всех целей')",timeout=10000)
+  await page.wait_for_function("() => document.getElementById('sweepStatus').textContent.includes('завершена')",timeout=30000)
+  await page.wait_for_function("() => document.getElementById('hashCount').textContent==='3'",timeout=15000)
   # --- 0.4: hashes tab + export gating ---
   await page.get_by_role('button',name='Хеши',exact=True).click()
-  await page.wait_for_function("() => document.getElementById('hashSummary').textContent.includes('Уникальных хешей: 2')")
-  assert await page.locator('#hashNets .tag').count()==1
+  await page.wait_for_function("() => document.getElementById('hashSummary').textContent.includes('Уникальных хешей: 3')")
+  assert await page.locator('#hashNets .tag').count()==2
   assert not await page.locator('#exportHashes').is_disabled()
   assert await page.locator('#hashLines').is_visible()
   # --- 0.4: Hashtopolis dry-run passes in DEMO; real send is blocked ---
@@ -60,7 +66,7 @@ async def main():
   await page.locator('#htpSend').click()
   await page.wait_for_function("() => !document.getElementById('htpResult').hidden")
   result=json.loads(await page.locator('#htpResult').inner_text())
-  assert result['dry_run'] is True and result['total']==2, result
+  assert result['dry_run'] is True and result['total']==3, result
   await page.locator('#htpDry').uncheck()
   await page.locator('#htpSend').click()
   await page.wait_for_function("() => !document.getElementById('error').hidden")
@@ -76,7 +82,7 @@ async def main():
   assert await page.locator('.network').count()==1
   await page.locator('#filterEnc').select_option('all')
   await page.locator('#filterTargets').select_option('potential')
-  assert await page.locator('.network').count()==0           # clients AND no hashes: none in DEMO
+  assert await page.locator('.network').count()==0           # sweep captured the last candidate
   await page.locator('#filterTargets').select_option('any')
   await page.locator('#sort').select_option('clients')       # sorts without error
   assert await page.locator('.network').count()==4
@@ -116,7 +122,7 @@ async def main():
    raise AssertionError('server still alive after shutdown')
   except Exception:
    pass
-  print('UI 0.4.4: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth+pmkid+wps DEMO, targets-filter+sort, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
+  print('UI 0.4.6: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth+pmkid+wps DEMO, targets-filter+sweep+brutestatus, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
   await browser.close()
 
 asyncio.run(main())
