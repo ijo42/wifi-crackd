@@ -67,14 +67,16 @@ public final class MainActivity extends Activity {
         box.setBackgroundColor(Color.rgb(11,17,26));
         TextView title=new TextView(this);title.setTextColor(Color.rgb(102,226,188));title.setTextSize(25);title.setText("Wifit3 Mobile / Termux");box.addView(title);
         commandStatus=new TextView(this);commandStatus.setTextColor(Color.rgb(234,241,245));commandStatus.setTextSize(15);commandStatus.setText("\n"+status+"\n");box.addView(commandStatus);
-        button(box,"Запустить / подключить Termux",()->requestTermux("start",false));
-        button(box,"Демо без USB",()->requestTermux("start",true));
+        TextView scenario=new TextView(this);scenario.setTextColor(Color.rgb(102,226,188));scenario.setTextSize(13);scenario.setText("Основной сценарий: внешний USB-адаптер в Termux.");scenario.setPadding(0,pad,0,0);box.addView(scenario);
+        Button startLive=button(box,"Запустить USB-режим в Termux",()->requestTermux("start",false));
+        startLive.setTextSize(17);
         button(box,"Проверить и подключить работающий модуль",()->requestTermux("status",false));
+        button(box,"Демо (диагностика, без USB)",()->requestTermux("start",true));
         button(box,"Остановить модуль Termux",()->confirmStop());
         button(box,"Настройка связи с Termux",()->showSetup());
         button(box,"Открыть Termux",()->openTermux());
         button(box,"Подключиться вручную по коду",()->openApp(HOME));
-        TextView hint=new TextView(this);hint.setTextColor(Color.rgb(145,164,183));hint.setText("\nПассивный обзор; активный deauth и отправка хешей в Hashtopolis — только после согласия в интерфейсе. Кнопка запуска включает модуль, но не запускает радио: адаптер и разрешение выбираются в интерфейсе. При сворачивании приём может продолжаться в Termux.");box.addView(hint);
+        TextView hint=new TextView(this);hint.setTextColor(Color.rgb(145,164,183));hint.setText("\nПассивный обзор; активный deauth и отправка хешей в Hashtopolis — только после согласия в интерфейсе. Кнопка запуска включает модуль, но не запускает радио: адаптер и разрешение выбираются в интерфейсе. Остановить модуль можно кнопкой «Завершить модуль» в веб-интерфейсе, «Стоп модуль» здесь или wifit3-mobile-service stop в Termux.");box.addView(hint);
         ScrollView scroll=new ScrollView(this);scroll.addView(box);setContentView(scroll);
     }
     private void setStatus(String text) { if(commandStatus!=null)commandStatus.setText("\n"+text+"\n"); }

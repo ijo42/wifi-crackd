@@ -8,3 +8,9 @@
 .btn-row{display:flex;gap:8px;margin-top:14px}.btn-row button{flex:1}
 .htp-result{background:#101923;border:1px solid var(--line);border-radius:8px;padding:12px;font-size:10px;font-family:ui-monospace,monospace;overflow:auto;max-height:260px;white-space:pre-wrap;overflow-wrap:anywhere;margin:14px 0 0}
 #hashNets:empty{display:none}
+.campaign-status{font-size:11px;background:#182635;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 10px;overflow-wrap:anywhere}
+.detail-hashes{margin:16px 0;border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:12px}
+.detail-hashes summary{cursor:pointer;color:var(--accent);font-weight:650;min-height:32px;display:flex;align-items:center}
+.detail-hashes .htp-result{margin:10px 0 0}
+header{gap:8px}
+header .badge:last-child{margin-left:auto}

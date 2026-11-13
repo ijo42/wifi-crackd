@@ -68,3 +68,58 @@ async def test_stop_resets_deauth_and_session_stop_stops_campaign():
     await e.stop()
     assert e.deauth.snapshot()['active'] is False
     assert e.snapshot()['hashes']['count'] == 0
+    assert e.deauth.snapshot()['last'] is None or e.deauth.snapshot()['last']['captured'] in (True, False)
+
+
+@pytest.mark.asyncio
+async def test_demo_deauth_records_last_result():
+    e = await started_engine()
+    await e.start_deauth('02:00:00:00:00:02', True)
+    await asyncio.sleep(3.5)
+    await e.stop_deauth()
+    last = e.deauth.snapshot()['last']
+    assert last is not None and last['captured'] is True and last['bssid'] == '02:00:00:00:00:02'
+    await e.stop()
+
+
+class _FakeArray:
+    def __init__(self):
+        self.calls = []
+        self._channels = [1]
+
+    async def stop_hopping(self):
+        self.calls.append('stop_hopping')
+
+    async def set_channel(self, channel, scan=False):
+        self.calls.append(('set_channel', channel))
+        return True
+
+    async def start_hopping(self, channels=None, interval=0.5, **kw):
+        self.calls.append(('start_hopping', tuple(channels), interval))
+
+
+class _FakeEngine:
+    def __init__(self):
+        self.demo = False
+        self.phase = 'scanning'
+        self.array = _FakeArray()
+        self._hop_channels = [1, 6, 11]
+        self._hop_interval = 0.5
+        self.loglines = []
+
+    def log(self, message):
+        self.loglines.append(str(message))
+
+
+@pytest.mark.asyncio
+async def test_live_tune_pins_channel_and_restore_hops_again():
+    """Upstream parity: deauth must stop hopping and pin the target channel (EAPOL parity)."""
+    from wifit3_mobile.attacks import DeauthControl
+    engine = _FakeEngine()
+    control = DeauthControl(engine)
+    target = type('T', (), {'channel': 6})()
+    await control._tune_live(engine.array, target)
+    await control._restore_hopping()
+    assert engine.array.calls[0] == 'stop_hopping'
+    assert engine.array.calls[1] == ('set_channel', 6)
+    assert engine.array.calls[2] == ('start_hopping', (1, 6, 11), 0.5)

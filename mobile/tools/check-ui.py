@@ -13,7 +13,7 @@ async def main():
   await page.request.post('http://127.0.0.1:8765/api/stop',headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'},data='{}')
   await page.goto('http://127.0.0.1:8765/#'+token)
   await page.locator('#workspace').wait_for(state='visible')
-  await page.get_by_role('button',name='Адаптер',exact=True).click()
+  await page.get_by_role('button',name='Модуль',exact=True).click()
   await page.locator('#refresh').click()
   await page.locator('#device option[value="demo"]').wait_for(state='attached')
   await page.locator('#authorized').check()
@@ -29,7 +29,33 @@ async def main():
   await page.locator('.network').first.click()
   await page.locator('#details').wait_for(state='visible')
   await page.screenshot(path='mobile-details-demo.png',full_page=True)
+  # --- 0.4: deauth campaign card (DEMO shim: synthetic capture in ~3 s) ---
+  await page.locator('#deauthBtn').wait_for(state='visible')
+  assert 'Готов' in await page.locator('#deauthStatus').inner_text()
+  await page.locator('#deauthBtn').click()
+  await page.wait_for_function("() => document.getElementById('deauthStatus').textContent.includes('Deauth:')")
+  await page.wait_for_function("() => document.getElementById('hashCount').textContent==='1'",timeout=15000)
+  await page.wait_for_function("() => document.getElementById('deauthStatus').textContent.includes('захват получен')",timeout=15000)
   await page.locator('#closeDetails').click()
+  # --- 0.4: hashes tab + export gating ---
+  await page.get_by_role('button',name='Хеши',exact=True).click()
+  await page.wait_for_function("() => document.getElementById('hashSummary').textContent.includes('Уникальных хешей: 1')")
+  assert await page.locator('#hashNets .tag').count()==1
+  assert not await page.locator('#exportHashes').is_disabled()
+  assert await page.locator('#hashLines').is_visible()
+  # --- 0.4: Hashtopolis dry-run passes in DEMO; real send is blocked ---
+  await page.locator('#htpUrl').fill('http://127.0.0.1:1')  # dry-run must not contact anything
+  await page.locator('#htpDry').check()
+  await page.locator('#htpSend').click()
+  await page.wait_for_function("() => !document.getElementById('htpResult').hidden")
+  result=json.loads(await page.locator('#htpResult').inner_text())
+  assert result['dry_run'] is True and result['total']==1, result
+  await page.locator('#htpDry').uncheck()
+  await page.locator('#htpSend').click()
+  await page.wait_for_function("() => !document.getElementById('error').hidden")
+  assert 'DEMO' in await page.locator('#error').inner_text()
+  # --- classic flow ---
+  await page.get_by_role('button',name='Сети',exact=True).click()
   await page.locator('#filterBand').select_option('5g')
   assert await page.locator('.network').count()==1
   await page.locator('#filterBand').select_option('all')
@@ -39,11 +65,14 @@ async def main():
   await download.save_as('export-test.json')
   report=json.loads(Path('export-test.json').read_text())
   assert report['demo'] is True and len(report['networks'])==4
+  await page.get_by_role('button',name='Журнал',exact=True).click()
+  assert 'запущен против' in await page.locator('#logs').inner_text()
+  await page.get_by_role('button',name='Сети',exact=True).click()
   await page.locator('#stop').click()
   await page.wait_for_function("() => document.getElementById('phase').textContent==='Готов'")
   await page.get_by_role('button',name='Журнал',exact=True).click()
   assert 'USB освобождён' in await page.locator('#logs').inner_text()
-  await page.get_by_role('button',name='Адаптер',exact=True).click()
+  await page.get_by_role('button',name='Модуль',exact=True).click()
   await page.locator('#disconnect').click()
   await page.locator('#pairing').wait_for(state='visible')
   await page.locator('#token').fill('incorrect');await page.locator('#connect').click()
@@ -52,7 +81,21 @@ async def main():
   await page.set_viewport_size({'width':320,'height':640})
   assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
   assert not errors, errors
-  print('UI: pairing, consent, refresh, start, 4 networks, search, details, band filter, JSON export, stop, logs, disconnect, invalid token, 390/320px layout: PASS')
+  # --- 0.4: graceful module shutdown without Ctrl+C (server exits; must be last) ---
+  await page.locator('#token').fill(token);await page.locator('#connect').click()
+  await page.locator('#workspace').wait_for(state='visible')
+  await page.get_by_role('button',name='Модуль',exact=True).click()
+  await page.locator('#shutdownModule').click()          # arm
+  await page.locator('#shutdownModule').click()          # confirm
+  await page.wait_for_function("() => !document.getElementById('workspace').hidden===false && document.getElementById('pairing').hidden===false")
+  assert 'Модуль остановлен' in await page.locator('#linkState').inner_text()
+  await page.wait_for_timeout(1500)                      # give the server time to exit
+  try:
+   await page.request.post('http://127.0.0.1:8765/api/state',headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'},data='{}')
+   raise AssertionError('server still alive after shutdown')
+  except Exception:
+   pass
+  print('UI 0.4.1: pairing, consent, USB refresh, start, 4 networks, search, focus+deauth DEMO capture, hashes tab, hc22000 export gate, htp dry-run, DEMO send block, band filter, JSON export, logs, disconnect, invalid token, 320px layout, graceful shutdown: PASS')
   await browser.close()
 
 asyncio.run(main())

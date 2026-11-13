@@ -84,11 +84,17 @@ class DeauthControl:
         self.campaign = None
         self.started_at = None
         self.error = ""
+        self.last = None                      # summary of the most recent campaign
+        self._watcher = None
 
     def reset(self):
         self.campaign = None
         self.started_at = None
         self.error = ""
+        self.last = None
+        if self._watcher is not None:
+            self._watcher.cancel()
+            self._watcher = None
 
     @property
     def active(self):
@@ -97,8 +103,9 @@ class DeauthControl:
     def snapshot(self):
         campaign = self.campaign
         if campaign is None:
+            last = dict(self.last) if self.last else None
             return {"active": False, "bssid": "", "ssid": "", "captured": False,
-                    "stats": {}, "started_at": None, "error": self.error}
+                    "stats": {}, "started_at": None, "error": self.error, "last": last}
         return {
             "active": self.active,
             "bssid": campaign.target.bssid,
@@ -108,6 +115,7 @@ class DeauthControl:
                       "bcast_sent": campaign.bcast_sent, "csa_sent": campaign.csa_sent},
             "started_at": self.started_at,
             "error": self.error,
+            "last": dict(self.last) if self.last else None,
         }
 
     def _demo_capture(self, bssid):
@@ -130,10 +138,75 @@ class DeauthControl:
             campaign = DemoDeauth(bssid, network["ssid"] or "", self._demo_capture)
         else:
             campaign = self._live_campaign(bssid)
+            # Upstream parity (Focus v2 _tune_to_target): a campaign only lands handshakes when the
+            # pool stops hopping and holds the target's channel; otherwise EAPOL arrives off-channel.
+            await self._tune_live(self.engine.array, campaign.target)
         self.campaign, self.started_at, self.error = campaign, utcnow(), ""
+        self.last = None
         campaign.run()
+        if not self.engine.demo:
+            self._watcher = asyncio.create_task(self._await_completion(campaign))
         self.engine.log("Deauth запущен против " + bssid + (" (DEMO)" if self.engine.demo else ""))
         return self.snapshot()
+
+    async def _tune_live(self, array, target):
+        """Stop hopping and pin the pool to the target channel, like the upstream Focus screen."""
+        try:
+            await array.stop_hopping()
+        except Exception as exc:
+            self.engine.log("Не удалось остановить перебор каналов: " + str(exc))
+        try:
+            if not await array.set_channel(target.channel, scan=False):
+                self.engine.log(f"Не удалось встать на канал {target.channel}; deauth может быть глухим.")
+            else:
+                self.engine.log(f"Канал зафиксирован: {target.channel} (перебор приостановлен).")
+        except Exception as exc:
+            self.engine.log("Ошибка установки канала: " + str(exc))
+
+    async def _restore_hopping(self):
+        engine = self.engine
+        if engine.demo or engine.phase != "scanning" or engine.array is None:
+            return
+        channels = getattr(engine, "_hop_channels", None)
+        if not channels:
+            return
+        try:
+            await engine.array.start_hopping(channels=channels, interval=engine._hop_interval)
+            engine.log("Перебор каналов восстановлен.")
+        except Exception as exc:
+            engine.log("Не удалось восстановить перебор каналов: " + str(exc))
+
+    async def _await_completion(self, campaign):
+        """Auto-finish bookkeeping when the campaign stops on its own (new capture)."""
+        try:
+            while not campaign.done:
+                await asyncio.sleep(0.2)
+            if self.campaign is campaign:
+                await self._finish(campaign, user_stop=False)
+        except asyncio.CancelledError:
+            raise
+
+    async def _finish(self, campaign, user_stop):
+        if getattr(campaign, "_bookkeeping_done", False):
+            return
+        campaign._bookkeeping_done = True
+        self.last = {
+            "bssid": campaign.target.bssid,
+            "ssid": getattr(campaign.target, "ssid", "") or "",
+            "captured": bool(campaign.captured),
+            "stats": {"client_sent": campaign.client_sent, "client_acks": campaign.client_acks,
+                      "bcast_sent": campaign.bcast_sent, "csa_sent": campaign.csa_sent},
+            "finished_at": utcnow(),
+        }
+        if campaign.captured:
+            self.engine.log("Deauth: новый крэкабельный захват получен — цель " + self.last["bssid"])
+        elif user_stop:
+            self.engine.log("Deauth остановлен без нового захвата.")
+        else:
+            self.engine.log("Deauth завершился без нового захвата (проверьте PMF/сигнал).")
+        if self.campaign is campaign:
+            self.campaign = None
+        await self._restore_hopping()
 
     def _live_campaign(self, bssid):
         """Build the upstream campaign after the PSK-family/PMF eligibility checks."""
@@ -153,18 +226,22 @@ class DeauthControl:
         return DeauthCampaign(array, ap, log=lambda m: self.engine.log(str(m).replace("[/]", "").replace("[", "").replace("]", "")))
 
     async def stop(self):
-        if self.campaign is None:
+        campaign = self.campaign
+        if campaign is None:
             return self.snapshot()
         try:
-            await self.campaign.stop()
+            await campaign.stop()
         except Exception as exc:
             self.error = f"Остановка deauth сообщила об ошибке: {exc}"
             self.engine.log(self.error)
-        self.campaign = None
+        await self._finish(campaign, user_stop=True)
         return self.snapshot()
 
     async def close(self):
         """Session teardown: request a cooperative stop without awaiting the task."""
+        if self._watcher is not None:
+            self._watcher.cancel()
+            self._watcher = None
         if self.campaign is not None:
             try:
                 self.campaign.request_stop()

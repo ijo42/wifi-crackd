@@ -20,12 +20,28 @@ function controls() {
   $('stop').disabled=busy || state.phase==='stopping';
   for(const id of ['refresh','device','band']) $(id).disabled=busy || active;
   $('export').disabled=!state.networks.length;
+  $('shutdownModule').disabled=busy;
   const d=state.deauth||{};
-  const onThis=d.active && detailTarget && d.bssid===detailTarget.bssid;
+  const onThis=!!(d.active && detailTarget && d.bssid===detailTarget.bssid);
+  const eligible=state.phase==='scanning' && detailTarget && detailTarget.psk_family && !d.active;
   $('deauthBtn').textContent=onThis?'■ Остановить deauth':'Deauth: форсировать новый хендшейк';
-  $('deauthBtn').disabled=busy || (!d.active && (state.phase!=='scanning' || !detailTarget.psk_family || !$('authorized').checked));
+  $('deauthBtn').disabled=busy || !onThis && !eligible;
   $('deauthBtn').classList.toggle('danger',!onThis);
-  $('detailActions').hidden=!detailTarget || (!onThis && (state.phase!=='scanning' || !detailTarget.psk_family));
+  $('detailActions').hidden=!detailTarget || (!onThis && !(detailTarget && detailTarget.psk_family && state.phase==='scanning'));
+  if(detailTarget)renderDeauthStatus(detailTarget);
+}
+function deauthHeadline(d, target) {
+  if(d.active && (!target || d.bssid===(target&&target.bssid))) return '● Deauth: форсируем повторный хендшейк · acks '+(d.stats.client_acks||0)+'/'+(d.stats.client_sent||0)+' · bcast '+(d.stats.bcast_sent||0)+' · CSA '+(d.stats.csa_sent||0);
+  if(d.captured && (!target || d.bssid===(target&&target.bssid))) return '● Новый крэкабельный захват получен — хеш доступен во вкладке «Хеши».';
+  if(target && target.pmf_required) return 'Цель с PMF: от deauth не отключается — только CSA‑маяки.';
+  return 'Готов: пары клиент↔AP + broadcast; авто‑стоп при новом захвате.';
+}
+function renderDeauthStatus(target) {
+  const d=state.deauth||{};
+  $('deauthStatus').textContent=deauthHeadline(d,target);
+  const last=(d.last||{}).bssid===(target&&target.bssid)?d.last:null;
+  $('deauthLast').hidden=!last;
+  if(last)$('deauthLast').textContent='Прошлая попытка: '+(last.captured?'новый крэкабельный захват получен.':'без нового захвата.')+' acks '+last.stats.client_acks+'/'+last.stats.client_sent+' · bcast '+last.stats.bcast_sent+' · CSA '+last.stats.csa_sent;
 }
 async function action(name, body={}) {
   if(busy)return; busy=true;controls();
@@ -46,22 +62,20 @@ async function poll() {
   if(connected)pollHandle=setTimeout(poll,1800);
 }
 function selectView(view) {
-  for(const name of ['scan','devices','hashes','log']) $('view-'+name).hidden=name!==view;
+  for(const name of ['scan','hashes','log','devices']) $('view-'+name).hidden=name!==view;
   document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
   if(view==='hashes')loadHashes();
 }
 function render(data) {
   state=data; $('demoNotice').hidden=!data.demo;$('phase').textContent=phases[data.phase]||data.phase;
   $('progress').textContent=data.error || data.progress;
-  $('mode').textContent=data.demo?'● DEMO · без USB':'● Приём + аудит';
+  $('mode').textContent=data.demo?'● DEMO · диагностика':'● USB · Termux';
   $('networkCount').textContent=data.networks.length;
   $('clientCount').textContent=new Set(data.networks.flatMap(n=>n.clients.map(c=>c.mac))).size;
   $('hashCount').textContent=(data.hashes&&data.hashes.count)||0;
   const d=data.deauth||{};
-  $('deauthBadge').hidden=!d.active && !d.captured;
-  $('deauthBadge').textContent=d.active?`● Deauth: ${d.ssid||d.bssid} · acks ${d.stats.client_acks}/${d.stats.client_sent}`:(d.captured?'● Захват получен':'');
-  $('deauthBadge').classList.toggle('captured',!!d.captured && !d.active);
-  if($('htpUrl').value==='' && !$('htpUrl').closest('#view-hashes').contains(document.activeElement)) $('htpUrl').value=data.htp&&data.htp.url||'';
+  if(!d.active && detailTarget && $('details').open)renderDeauthStatus(detailTarget);
+  if($('htpUrl').value==='' && data.htp && data.htp.url) $('htpUrl').value=data.htp.url;
   if($('htpUser').value==='' && data.htp && data.htp.user) $('htpUser').value=data.htp.user;
   if(data.htp && data.htp.has_token) $('htpToken').placeholder='сохранён · введите новый для замены';
   const signature=JSON.stringify(data.devices.map(d=>[d.id,d.name]));
@@ -72,38 +86,60 @@ function render(data) {
     if(data.devices.some(d=>d.id===prev))$('device').value=prev;
     $('device').dataset.signature=signature;
   }
-  renderNetworks(); renderLogs(); renderObservations(); controls();
+  renderNetworks(); renderLogs(); renderObservations();
+  if($('details').open && detailTarget)renderFocusLive();
+  controls();
   $('snapshot').textContent=data.networks.length ? (data.phase==='scanning'?'Живой приём · ':'Последний снимок · ') + (data.snapshot_at?new Date(data.snapshot_at).toLocaleTimeString('ru-RU'):'—') + ' · Счётчики за текущую сессию.' : '';
 }
 function renderNetworks(){
   if(!state)return;
   const q=$('search').value.toLocaleLowerCase(),band=$('filterBand').value,sort=$('sort').value;
-  const list=state.networks.filter(n=>(n.ssid+' '+n.bssid).toLocaleLowerCase().includes(q) && (band==='all'||(band==='2g'?n.channel<=14:n.channel>14))).sort((a,b)=>sort==='ssid'?a.ssid.localeCompare(b.ssid):sort==='channel'?a.channel-b.channel:b.signal-a.signal);
+  const list=state.networks.filter(n=>(n.ssid+' '+n.bssid).toLocaleLowerCase().includes(q) && (band==='all'||(band==='2g'?n.channel<=14:n.channel>14)))
+    .sort((a,b)=>sort==='ssid'?a.ssid.localeCompare(b.ssid):sort==='channel'?a.channel-b.channel:sort==='captures'?(b.captures||0)-(a.captures||0):b.signal-a.signal);
   $('shownCount').textContent='НАЙДЕННЫЕ СЕТИ / '+list.length;
   $('networks').replaceChildren();$('empty').hidden=list.length>0;
   if(!list.length && state.networks.length){$('empty').querySelector('h2').textContent='Нет совпадений';$('empty').querySelector('p').textContent='Попробуйте изменить поиск или диапазон.';}
-  else if(!list.length){$('empty').querySelector('h2').textContent=state.phase==='scanning'?'Слушаем эфир…':'Здесь появятся сети';$('empty').querySelector('p').textContent=state.phase==='scanning'?'Дождитесь маяков точек доступа. Проверьте диапазон и питание адаптера.':'Выберите USB-адаптер в разделе «Адаптер» и запустите сканирование.';}
+  else if(!list.length){$('empty').querySelector('h2').textContent=state.phase==='scanning'?'Слушаем эфир…':'Здесь появятся сети';$('empty').querySelector('p').textContent=state.phase==='scanning'?'Дождитесь маяков точек доступа. Проверьте диапазон и питание адаптера.':'Подключите USB‑адаптер в разделе «Модуль» и запустите приём.';}
   for(const n of list){
     const row=el('button','network');row.type='button';row.setAttribute('aria-label',(n.ssid||'Скрытая сеть')+', '+n.signal+' dBm, подробности');
-    const info=el('div');info.append(el('div','network-name',n.ssid||'Скрытая сеть'),el('div','network-info',n.bssid+' · CH '+n.channel));
+    const info=el('div');info.append(el('div','network-name',n.ssid||'Скрытая сеть'),el('div','network-info',n.bssid+' · CH '+n.channel+' · маяки '+n.beacons));
     const tags=el('div','network-tags');tags.append(el('span','tag'+(n.wpa3?' good':n.encryption==='OPEN'?' warn':''),n.encryption));
-    tags.append(el('span','tag',n.channel>14?'5 GHz':'2.4 GHz'));if(n.wps)tags.append(el('span','tag warn','WPS'));if(n.age_seconds>30)tags.append(el('span','tag','Не видна >30 c'));
+    tags.append(el('span','tag',n.channel>14?'5 GHz':'2.4 GHz'));
+    if(n.wps)tags.append(el('span','tag warn','WPS'));
+    if(n.pmf_required)tags.append(el('span','tag','PMF'));
+    if(n.transition_mode)tags.append(el('span','tag good','SCE'));
     if(n.captures)tags.append(el('span','tag good','хешей: '+n.captures));
+    if(n.clients.length)tags.append(el('span','tag','клиентов: '+n.clients.length));
+    if(n.age_seconds>30)tags.append(el('span','tag','Не видна >30 c'));
     info.append(tags);const signal=el('div','signal'),bars=el('div','bars');const count=n.signal>=-50?4:n.signal>=-65?3:n.signal>=-80?2:1;
     for(let i=0;i<4;i++)bars.append(el('i',i<count?'on':''));signal.append(bars,el('strong','',n.signal),el('small','','dBm'));
-    row.append(info,signal);row.addEventListener('click',()=>details(n));$('networks').append(row);
+    row.append(info,signal);row.addEventListener('click',()=>focusNetwork(n));$('networks').append(row);
   }
 }
-function details(n){
+function focusNetwork(n){
   detailTarget=n;
-  $('detailName').textContent=n.ssid||'Скрытая сеть';$('detailList').replaceChildren();
-  const rows=[['BSSID',n.bssid],['Канал',n.channel],['Сигнал',n.signal+' dBm'],['Защита',n.encryption],['Производитель',n.vendor||'Не определён'],['WPS',n.wps?(n.wps_locked?'Есть · заблокирован':'Есть'):'Не обнаружен'],['PMF',n.pmf_required?'Обязателен':n.pmf_capable?'Поддерживается':'Не объявлен'],['Маяки',n.beacons],['Последний маяк',new Date(n.last_seen*1000).toLocaleTimeString('ru-RU')],['Крэкабельных захватов',n.captures||0]];
-  if(n.psk_family)rows.push(['Deauth',n.pmf_required?'PMF: только CSA-маяки':'доступен']);
+  $('detailName').textContent=n.ssid||'Скрытая сеть';
+  $('detailTags').replaceChildren();
+  for(const t of [[n.encryption,!n.wpa3&&n.encryption==='OPEN'?'warn':'good'],[n.pmf_required?'PMF обязателен':n.pmf_capable?'PMF':'',n.pmf_required?'warn':''],[n.transition_mode?'WPA2/WPA3 SCE':'','good'],[n.wps?(n.wps_locked?'WPS · заблокирован':'WPS'):'','warn']].filter(x=>x[0]))
+    $('detailTags').append(el('span','tag '+t[1],t[0]));
+  $('detailList').replaceChildren();
+  const rows=[['BSSID',n.bssid],['Канал',n.channel],['Сигнал',n.signal+' dBm'],['Защита',n.encryption],['Производитель',n.vendor||'Не определён'],['Маяки',n.beacons],['Последний маяк',new Date(n.last_seen*1000).toLocaleTimeString('ru-RU')],['Крэкабельных захватов',(n.captures||0)+(n.pmkid?' · есть PMKID':'')]];
   for(const [label,value] of rows){const row=el('div');row.append(el('dt','',label),el('dd','',value));$('detailList').append(row);}
   $('detailClients').replaceChildren(el('p','eyebrow','КЛИЕНТЫ / '+n.clients.length));
   for(const c of n.clients)$('detailClients').append(el('p','network-info',c.mac+' · '+c.signal+' dBm · '+c.packets+' пакетов'));
-  $('detailActions').hidden=true;
+  const mac=n.bssid.replace(/:/g,'');
+  const lines=(hashCache&&hashCache.lines||[]).filter(l=>(l.split('*')[3]||'')===mac);
+  $('detailHashes').hidden=!lines.length;
+  if(lines.length)$('detailHashLines').textContent=lines.join('\n');
+  $('detailHashes').open=false;
+  renderDeauthStatus(n);
   $('details').showModal();controls();
+}
+function renderFocusLive(){
+  if(!detailTarget)return;
+  const fresh=state.networks.find(n=>n.bssid===detailTarget.bssid);
+  if(fresh)detailTarget=fresh;
+  controls();
 }
 function renderLogs(){ $('logs').replaceChildren(); for(const entry of [...state.logs].reverse()){const li=el('li');li.append(el('time','',new Date(entry.time).toLocaleTimeString('ru-RU')),el('span','',entry.message));$('logs').append(li);} }
 function renderObservations(){
@@ -120,15 +156,24 @@ function renderObservations(){
 async function loadHashes() {
   try {
     const data=await api('hashes');hashCache=data;
-    $('hashSummary').textContent=data.count?('Уникальных хешей: '+data.count+' · сетей: '+Object.keys(data.networks).length):'Крэкабельных хешей нет. Deauth по WPA/WPA2-PSK цели провоцирует новый хендшейк.';
+    $('hashSummary').textContent=data.count?('Уникальных хешей: '+data.count+' · сетей: '+Object.keys(data.networks).length):'Крэкабельных хешей нет. Откройте цель и запустите deauth — он провоцирует новый хендшейк.';
     const nets=$('hashNets');nets.replaceChildren();
     for(const [bssid,count] of Object.entries(data.networks||{})){
       const n=(state&&state.networks||[]).find(x=>x.bssid===bssid);
       nets.append(el('span','tag good',(n&&n.ssid||bssid)+' · '+count));
     }
+    $('hashLines').hidden=!data.lines||!data.lines.length;
+    if(data.lines&&data.lines.length)$('hashLines').textContent=data.lines.join('\n');
     $('exportHashes').disabled=!data.lines||!data.lines.length;
     $('htpSend').disabled=!data.lines||!data.lines.length;
+    if($('details').open && detailTarget)focusHashRefresh();
   } catch(e){showError(e.message);}
+}
+function focusHashRefresh(){
+  const mac=detailTarget.bssid.replace(/:/g,'');
+  const lines=(hashCache&&hashCache.lines||[]).filter(l=>(l.split('*')[3]||'')===mac);
+  $('detailHashes').hidden=!lines.length;
+  if(lines.length)$('detailHashLines').textContent=lines.join('\n');
 }
 function exportHashes() {
   if(!hashCache||!hashCache.lines||!hashCache.lines.length)return showError('Хешей нет.');
@@ -154,6 +199,21 @@ function exportReport(){
   if(window.Android && typeof window.Android.saveReport==='function')window.Android.saveReport(text);
   else{const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));const a=el('a');a.href=url;a.download='wifi-survey.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 }
+let shutdownArmed=null;
+async function shutdownModule(){
+  // No native confirm(): Android WebView without a WebChromeClient returns false silently.
+  const btn=$('shutdownModule');
+  if(!shutdownArmed){
+    btn.textContent='Нажмите ещё раз для подтверждения завершения';
+    shutdownArmed=setTimeout(()=>{shutdownArmed=null;btn.textContent='Завершить модуль: остановить приём и выйти';},5000);
+    return;
+  }
+  clearTimeout(shutdownArmed);shutdownArmed=null;btn.textContent='Завершить модуль: остановить приём и выйти';
+  try{await api('shutdown',{});}catch(e){/* server is already gone */}
+  connected=false;token='';clearTimeout(pollHandle);sessionStorage.removeItem('wifit3-token');
+  $('workspace').hidden=true;$('pairing').hidden=false;$('linkState').textContent='Модуль остановлен';
+  $('progress').textContent='';
+}
 $('connect').addEventListener('click',pair);$('token').addEventListener('keydown',e=>{if(e.key==='Enter')pair();});
 $('refresh').addEventListener('click',()=>action('refresh'));
 $('start').addEventListener('click',()=>{if(!$('device').value || !$('authorized').checked){selectView('devices');return;}action('start',{device_id:$('device').value,band:$('band').value,authorized:true});});
@@ -164,12 +224,12 @@ $('deauthBtn').addEventListener('click',()=>{
   if(d.active && detailTarget && d.bssid===detailTarget.bssid)action('deauth/stop');
   else action('deauth/start',{bssid:detailTarget&&detailTarget.bssid,authorized:$('authorized').checked===true});
 });
-$('deauthBadge').addEventListener('click',()=>{if(state&&state.deauth&&state.deauth.active)action('deauth/stop');});
 for(const id of ['search','filterBand','sort'])$(id).addEventListener('input',renderNetworks);
 for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('click',()=>selectView(b.dataset.view));
 $('closeDetails').addEventListener('click',()=>$('details').close());
 $('export').addEventListener('click',exportReport);
 $('exportHashes').addEventListener('click',exportHashes);
+$('shutdownModule').addEventListener('click',shutdownModule);
 $('htpSave').addEventListener('click',()=>htpCall('htp',{url:$('htpUrl').value.trim(),user:$('htpUser').value.trim(),token:$('htpToken').value.trim()}));
 $('htpClear').addEventListener('click',()=>htpCall('htp',{clear:true}));
 $('htpTest').addEventListener('click',()=>htpCall('htp/test',{url:$('htpUrl').value.trim(),user:$('htpUser').value.trim(),token:$('htpToken').value.trim(),password:$('htpPassword').value}));

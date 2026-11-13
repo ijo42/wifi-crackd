@@ -81,6 +81,8 @@ class Engine:
         self._lock = asyncio.Lock()
         self._loop = None
         self.band = "all"
+        self._hop_channels = None
+        self._hop_interval = 0.5
         self.started_at = None
         self.last_snapshot_at = None
         self.log("Модуль готов. Активные действия — только по разрешению на аудит.")
@@ -158,7 +160,9 @@ class Engine:
                 self.array.register_disconnect_callback(self._device_lost)
                 iface.register_rx_callback(self.disconnect_observations.receive)
                 self.array.attach(iface)
-                await self.array.start_hopping(channels=channels, interval=0.5)
+                self._hop_channels = channels
+                self._hop_interval = 0.5
+                await self.array.start_hopping(channels=channels, interval=self._hop_interval)
             self.phase = "scanning"
             self.started_at = utcnow()
             self.error = ""

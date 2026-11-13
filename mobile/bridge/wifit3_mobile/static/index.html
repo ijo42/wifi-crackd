@@ -6,40 +6,32 @@
 <link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script>
 </head>
 <body>
-<header><div class="brand"><span class="mark">≋</span><div>WIFIT3 <span class="muted">/ MOBILE</span><small>USB WIRELESS SURVEY</small></div></div><span id="linkState" class="badge">Локально</span></header>
+<header><div class="brand"><span class="mark">≋</span><div>WIFIT3 <span class="muted">/ MOBILE</span><small>USB AUDIT · TERMUX</small></div></div><span id="phase" class="badge">Готов</span><span id="linkState" class="badge">Локально</span></header>
 <main>
 <section id="pairing" class="panel">
 <p class="eyebrow">01 / ПОДКЛЮЧЕНИЕ</p><h1>Ваш эфир.<br><span class="accent">Под контролем.</span></h1>
-<p class="muted">Запустите модуль в Termux и вставьте код, который он выдал. Все данные остаются на этом устройстве.</p>
+<p class="muted">Основной сценарий: внешний USB‑адаптер в Termux. Запустите модуль и вставьте код, который он выдал.</p>
 <label for="token">Код подключения</label><input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="Код из Termux">
 <button id="connect" class="primary">Подключиться <span>↗</span></button>
 <p class="hint">Модуль: 127.0.0.1 · Требуются Termux:API и совместимый USB‑адаптер.</p>
 </section>
 <div id="workspace" hidden>
-<div id="demoNotice" class="notice" hidden>DEMO / Вымышленные сети. USB не используется.</div>
-<div class="title-row"><div><p class="eyebrow">ОБЗОР ЭФИРА</p><h1>Сканер сетей<span class="accent">.</span></h1></div><button id="deauthBadge" class="badge deauth-badge" hidden></button><span id="phase" class="badge">Готов</span></div>
+<div id="demoNotice" class="notice" hidden>DEMO / Вымышленные сети. Диагностический режим без USB; радио не используется.</div>
 <p id="progress" class="muted live-progress" aria-live="polite"></p>
 <div class="metrics"><div><strong id="networkCount">0</strong><span>СЕТЕЙ</span></div><div><strong id="clientCount">0</strong><span>КЛИЕНТОВ</span></div><div><strong id="hashCount">0</strong><span>ХЕШЕЙ</span></div></div>
-<nav aria-label="Разделы"><button class="tab active" data-view="scan">Сети</button><button class="tab" data-view="devices">Адаптер</button><button class="tab" data-view="hashes">Хеши</button><button class="tab" data-view="log">Журнал</button></nav>
+<nav aria-label="Разделы"><button class="tab active" data-view="scan">Сети</button><button class="tab" data-view="hashes">Хеши</button><button class="tab" data-view="log">Журнал</button><button class="tab" data-view="devices">Модуль</button></nav>
 <section id="view-scan">
 <div class="filters"><input id="search" type="search" aria-label="Поиск сети" placeholder="Поиск по SSID или BSSID"><select id="filterBand" aria-label="Диапазон сетей"><option value="all">Все частоты</option><option value="2g">2.4 GHz</option><option value="5g">5 GHz</option></select></div>
-<div class="list-heading"><span id="shownCount">НАЙДЕННЫЕ СЕТИ</span><select id="sort" aria-label="Сортировка"><option value="signal">По сигналу ↓</option><option value="ssid">По имени</option><option value="channel">По каналу</option></select></div>
+<div class="list-heading"><span id="shownCount">НАЙДЕННЫЕ СЕТИ</span><select id="sort" aria-label="Сортировка"><option value="signal">По сигналу ↓</option><option value="ssid">По имени</option><option value="channel">По каналу</option><option value="captures">По захватам ↓</option></select></div>
 <div id="networks" class="network-list"></div>
-<div id="empty" class="empty"><span class="radar">◎</span><h2>Здесь появятся сети</h2><p>Выберите USB‑адаптер в разделе «Адаптер»<br>и запустите пассивное сканирование.</p></div>
+<div id="empty" class="empty"><span class="radar">◎</span><h2>Здесь появятся сети</h2><p>Подключите USB‑адаптер в разделе «Модуль»<br>и запустите приём.</p></div>
 <p id="snapshot" class="hint"></p>
 <button id="export" class="secondary full">Экспорт снимка · JSON</button>
-</section>
-<section id="view-devices" hidden>
-<div class="panel"><p class="eyebrow">ИСТОЧНИК ДАННЫХ</p><h2>USB‑адаптер</h2><p class="muted">Встроенный Wi‑Fi телефона не используется. При запросе Android разрешите Termux:API доступ к USB.</p>
-<button id="refresh" class="secondary full">Обновить список USB</button><label for="device">Адаптер</label><select id="device" class="full"><option value="">Сначала обновите список</option></select>
-<label for="band">Диапазон сканирования</label><select id="band" class="full"><option value="all">Все поддерживаемые</option><option value="2g">Только 2.4 GHz</option><option value="5g">Только 5 GHz</option></select>
-<label class="consent"><input id="authorized" type="checkbox"><span>У меня есть разрешение на аудит этого оборудования (включая активный deauth по выбранным целям).</span></label>
-<p class="hint">Версия 0.4 · Один адаптер за сессию · Пассивный приём; активный deauth — только после согласия и только для WPA/WPA2‑PSK целей. Подбор паролей выполняет внешний Hashtopolis. Сканирование может продолжаться при сворачивании приложения, пока работает Termux.</p></div>
-<button id="disconnect" class="secondary full">Отключить интерфейс</button><p class="hint">Отключение интерфейса не останавливает приём. Для этого нажмите «Стоп».</p>
 </section>
 <section id="view-hashes" hidden>
 <div class="panel"><p class="eyebrow">ЗАХВАТЫ WPA/PMKID</p><h2>Хеши hc22000</h2><p id="hashSummary" class="muted">Крэкабельных хешей нет.</p>
 <div id="hashNets" class="hash-nets"></div>
+<pre id="hashLines" class="htp-result" hidden></pre>
 <button id="exportHashes" class="secondary full" disabled>Экспорт hc22000</button>
 <p class="hint">Хеши собираются из принятых хендшейков/PMKID. Скрытый SSID хеш не даёт. FT‑строки (802.11r) hashcat ‑m 22000 не брутит.</p></div>
 <div class="panel"><p class="eyebrow">ВНЕШНИЙ БРУТ</p><h2>Hashtopolis</h2>
@@ -54,12 +46,26 @@
 <label class="consent"><input id="htpAllWpa" type="checkbox"><span>Взять все pretask'и «WPA2 | » (иначе — эскалационная цепочка по умолчанию).</span></label>
 <button id="htpSend" class="primary full">Отправить хеши <span>↗</span></button>
 <pre id="htpResult" class="htp-result" hidden></pre>
-<p class="hint">Токен хранится только в приватном каталоге модуля (0600); пароль не сохраняется вовсе. Отправка передаёт SSID/BSSID/MAC внешнему серверу. Отправка блокируется, пока сессия не собрала ни одного хеша.</p></div>
+<p class="hint">Токен хранится только в приватном каталоге модуля (0600); пароль не сохраняется вовсе. Отправка передаёт SSID/BSSID/MAC внешнему серверу.</p></div>
 </section>
-<section id="view-log" hidden><div class="panel"><p class="eyebrow">СЕССИЯ</p><h2>Журнал событий</h2><h3>Принятые deauth / disassoc</h3><p id="disconnectSummary"></p><p class="network-info">Только приём, без передачи. Возможны повторы; это не доказательство атаки или личности отправителя. Последние 150 событий за сессию.</p><ol id="disconnectEvents"></ol><h3>Состояние модуля</h3><ol id="logs"></ol></div></section>
-<footer><span id="mode">● Пассивный режим</span><button id="start" class="primary">Начать сканирование <span>↗</span></button><button id="stop" class="danger" hidden>■ Стоп / освободить USB</button></footer>
+<section id="view-log" hidden><div class="panel"><p class="eyebrow">СЕССИЯ</p><h2>Журнал событий</h2><h3>Принятые deauth / disassoc</h3><p id="disconnectSummary"></p><p class="network-info">Только приём. Возможны повторы; это не доказательство атаки или личности отправителя. Последние 150 событий за сессию.</p><ol id="disconnectEvents"></ol><h3>Состояние модуля</h3><ol id="logs"></ol></div></section>
+<section id="view-devices" hidden>
+<div class="panel"><p class="eyebrow">ОСНОВНОЙ РЕЖИМ · USB</p><h2>USB‑адаптер в Termux</h2><p class="muted">Встроенный Wi‑Fi телефона не используется. При запросе Android разрешите Termux:API доступ к USB. «Демо» — диагностический режим без радио, выбирается при запуске модуля.</p>
+<button id="refresh" class="secondary full">Обновить список USB</button><label for="device">Адаптер</label><select id="device" class="full"><option value="">Сначала обновите список</option></select>
+<label for="band">Диапазон сканирования</label><select id="band" class="full"><option value="all">Все поддерживаемые</option><option value="2g">Только 2.4 GHz</option><option value="5g">Только 5 GHz</option></select>
+<label class="consent"><input id="authorized" type="checkbox"><span>У меня есть разрешение на аудит этого оборудования (включая активный deauth по выбранным целям).</span></label>
+<p class="hint">Версия 0.4 · Один адаптер за сессию · Пассивный приём; активный deauth — только после согласия и только для WPA/WPA2‑PSK целей. Подбор паролей выполняет внешний Hashtopolis. Приём продолжается при сворачивании приложения, пока работает Termux.</p></div>
+<button id="shutdownModule" class="danger full">Завершить модуль: остановить приём и выйти</button>
+<p class="hint">Аналог Ctrl+C: останавливает deauth/приём, освобождает USB и закрывает локальный сервер. Для управляемого режима есть также кнопка «Стоп модуль» в Termux‑панели и команда wifit3‑mobile‑service stop.</p>
+<button id="disconnect" class="secondary full">Отключить интерфейс</button><p class="hint">Отключение интерфейса не останавливает приём. Для этого нажмите «Стоп» или «Завершить модуль».</p>
+</section>
+<footer><span id="mode">● USB · Termux</span><button id="start" class="primary">Начать приём <span>↗</span></button><button id="stop" class="danger" hidden>■ Стоп / освободить USB</button></footer>
 </div>
 <div id="error" role="alert" hidden></div>
 </main>
-<dialog id="details"><div class="title-row"><p class="eyebrow">ПОДРОБНОСТИ СЕТИ</p><button id="closeDetails" class="icon" aria-label="Закрыть">×</button></div><h2 id="detailName"></h2><dl id="detailList"></dl><div id="detailClients"></div><div id="detailActions" hidden><button id="deauthBtn" class="danger full">Deauth: форсировать новый хендшейк</button><p class="hint">Активная атака: двусторонние deauth‑пары по клиентам + broadcast, для PMF — только CSA‑маяки. Останов автоматически при новом крэкабельном захвате. Выполняйте только на сетях с разрешения владельца.</p></div><p class="hint">Показаны только наблюдаемые сведения. Отсутствие клиентов не означает, что их нет.</p></dialog>
+<dialog id="details"><div class="title-row"><p class="eyebrow">ЦЕЛЬ</p><button id="closeDetails" class="icon" aria-label="Закрыть">×</button></div><h2 id="detailName"></h2><div id="detailTags" class="hash-nets"></div><dl id="detailList"></dl>
+<div id="detailActions" hidden><p id="deauthStatus" class="campaign-status"></p><button id="deauthBtn" class="danger full">Deauth: форсировать новый хендшейк</button><p id="deauthLast" class="hint" hidden></p><p class="hint">Активная атака: двусторонние deauth‑пары по клиентам + broadcast, для PMF — только CSA‑маяки. Канал цели фиксируется, перебор приостанавливается; автостоп при новом крэкабельном захвате. Только с разрешения владельца сети.</p></div>
+<div id="detailClients"></div>
+<details id="detailHashes" class="detail-hashes" hidden><summary>Хеши этой сети</summary><pre id="detailHashLines" class="htp-result"></pre></details>
+<p class="hint">Показаны только наблюдаемые сведения. Отсутствие клиентов не означает, что их нет.</p></dialog>
 </body></html>

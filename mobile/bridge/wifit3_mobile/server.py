@@ -164,7 +164,7 @@ async def serve(port, demo, token_file=None, service_info=None, state_dir=None):
     token = secrets.token_urlsafe(32)
     engine.instance_id = secrets.token_hex(16)
     stopped = asyncio.Event()
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(engine, loop, token, port, stopped if service_info else None))
+    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(engine, loop, token, port, stopped))
     if service_info:
         info_path = Path(service_info)
         info_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
