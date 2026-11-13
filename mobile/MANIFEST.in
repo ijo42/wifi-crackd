@@ -1,0 +1,2 @@
+include README.md LICENSE THIRD-PARTY-NOTICES.md SECURITY.md CHANGELOG.md PUBLICATION.md VALIDATION.md INSTALL-REPAIR.md
+recursive-include bridge/wifit3_mobile/static *.html *.js *.css

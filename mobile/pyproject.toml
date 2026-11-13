@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wifit3-mobile"
+version = "0.4.0"
+description = "Wi-Fi survey with authorized deauth, hc22000 collection and Hashtopolis upload (Android/Termux)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-2.0-only"
+license-files = ["LICENSE"]
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Environment :: Console",
+  "Operating System :: POSIX",
+  "Topic :: System :: Networking :: Monitoring",
+]
+
+[project.optional-dependencies]
+usb = ["wifit3 @ git+https://github.com/OliverRhyme/wifit3-termux.git@04a4e2b6e3d6d54b7befd526bdb7232694ec49ea"]
+dev = ["build", "pytest>=8", "pytest-asyncio>=0.24", "twine"]
+
+[project.scripts]
+wifit3-mobile = "wifit3_mobile.server:main"
+wifit3-mobile-service = "wifit3_mobile.service:main"
+wifit3-mobile-htp = "wifit3_mobile.htp_cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "bridge"}
+
+[tool.setuptools.packages.find]
+where = ["bridge"]
+include = ["wifit3_mobile*"]
+
+[tool.setuptools.package-data]
+wifit3_mobile = ["static/*"]
